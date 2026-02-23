@@ -1,0 +1,11 @@
+.env.dev
+.env.prod
+.env
+
+node_modules
+package-lock.json
+
+firebase-service-account.json
+
+# User uploads (avatars)
+uploads/
