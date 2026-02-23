@@ -104,7 +104,8 @@ export const addProduct = async (req: Request, res: Response): Promise<Response>
 export const removeProduct = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
-    const productId = req.params?.productId;
+    const rawProductId = req.params?.productId;
+    const productId = typeof rawProductId === 'string' ? rawProductId : Array.isArray(rawProductId) ? rawProductId[0] : undefined;
     if (!userId || !mongoose.isValidObjectId(userId)) {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({ success: false, message: 'Unauthorized' });
     }

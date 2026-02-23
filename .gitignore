@@ -1,19 +1,34 @@
+# =======================================
+# NextFit Monorepo .gitignore (root)
+# admin/ backend/ frontend/
+# =======================================
+
 # ===============================
 # Node / Dependencies
 # ===============================
+node_modules/
 **/node_modules/
+.pnp/
 **/.pnp/
 .pnp.js
 
 # ===============================
 # Build Outputs
 # ===============================
-**/.next/
+dist/
 **/dist/
+build/
 **/build/
+out/
 **/out/
+.next/
+**/.next/
+.turbo/
 **/.turbo/
+.cache/
 **/.cache/
+.vite/
+**/.vite/
 
 # ===============================
 # Environment Files (CRITICAL)
@@ -23,6 +38,7 @@
 **/.env
 **/.env.*
 !.env.example
+**/.env.example
 
 # ===============================
 # Logs
@@ -53,6 +69,10 @@ Thumbs.db
 docker-compose.override.yml
 **/docker-compose.override.yml
 
+# Optional: local-only compose files people create
+docker-compose.local.yml
+**/docker-compose.local.yml
+
 # ===============================
 # Coverage / Testing
 # ===============================
@@ -79,4 +99,20 @@ temp/
 *.seed
 *.lock-wscript
 
+# ===============================
+# Project-specific (NextFit)
+# ===============================
+
+# If you generate uploads locally
+uploads/
+**/uploads/
+
+# Firebase service account should NEVER be committed
+**/firebase-service-account.json
+
+# Nginx / static artifacts (if you ever generate locally)
+**/nginx.conf
+**/nginx*.conf
+
+# Docs folder if you want it ignored (you included it)
 docs/

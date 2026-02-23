@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon --exec tsx app.ts",
     "server": "nodemon --exec tsx app.ts",
-    "start": "tsx app.ts"
+    "start": "node dist/app.js",
+    "build": "tsc"
   },
   "keywords": [],
   "author": "",

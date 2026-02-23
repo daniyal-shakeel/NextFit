@@ -1,6 +1,5 @@
 services:
-  # Ollama: local LLM for AI description suggestions. After first start, pull a model:
-  #   docker compose exec ollama ollama pull tinyllama
+  # ===== Infrastructure =====
   ollama:
     image: ollama/ollama:latest
     ports:
@@ -23,6 +22,52 @@ services:
     ports:
       - "1025:1025"   # SMTP
       - "8025:8025"   # Web UI
+    restart: unless-stopped
+
+  # ===== Backend =====
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env.docker
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongo
+      - mailhog
+      - ollama
+    restart: unless-stopped
+    # If you have uploads at runtime, mount a volume:
+    # volumes:
+    #   - ./backend/uploads:/app/uploads
+
+  # ===== Admin (static nginx) =====
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+      args:
+        # Vite build-time variable
+        VITE_API_BASE_URL: "http://localhost:3001"
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ===== Frontend (static nginx) =====
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Vite build-time variable
+        VITE_API_URL: "http://localhost:3001/api"
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
     restart: unless-stopped
 
 volumes:

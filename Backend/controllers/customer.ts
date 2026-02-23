@@ -514,7 +514,7 @@ export const list = async (req: Request, res: Response): Promise<Response> => {
         .lean(),
       User.countDocuments(filter),
     ]);
-    const users = (usersRaw as Record<string, unknown>[]).map((u) => ({
+    const users = (usersRaw as unknown as Record<string, unknown>[]).map((u) => ({
       ...u,
       phone: getDisplayPhone(u as { phone?: string; phoneCountryCode?: string }),
     }));

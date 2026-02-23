@@ -1282,14 +1282,15 @@ const verifyPhone = async (req: Request, res: Response): Promise<Response> => {
       authMethod: AuthMethod.PHONE,
     });
     if (!existingUser) {
-      existingUser = await User.findOne({
+      const legacyUser = await User.findOne({
         phone: normalizedPhone,
         authMethod: AuthMethod.PHONE,
-      }) as typeof existingUser;
-      if (existingUser) {
-        existingUser.phoneCountryCode = phoneCountryCode;
-        existingUser.phone = phoneRest;
-        await existingUser.save();
+      });
+      if (legacyUser) {
+        legacyUser.phoneCountryCode = phoneCountryCode;
+        legacyUser.phone = phoneRest;
+        await legacyUser.save();
+        existingUser = legacyUser;
       }
     }
 

@@ -27,6 +27,12 @@ function trimOptionalString(value: unknown, maxLen: number): string | undefined 
   return s === '' ? undefined : s.slice(0, maxLen);
 }
 
+/** Normalize query/params value to a single string for Mongoose. */
+function paramString(value: string | string[] | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return typeof value === 'string' ? value : value[0];
+}
+
 interface PopulatedItem {
   _id: mongoose.Types.ObjectId;
   productId: { _id: mongoose.Types.ObjectId; name: string; basePrice: number; mainImageUrl?: string };
@@ -226,7 +232,7 @@ export const addItem = async (req: Request, res: Response): Promise<Response> =>
 export const updateItem = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
-    const itemId = req.params?.itemId;
+    const itemId = paramString(req.params?.itemId);
     const quantity = ensureQuantity(req.body?.quantity ?? 1);
 
     if (!userId || !mongoose.isValidObjectId(userId)) {
@@ -249,7 +255,7 @@ export const updateItem = async (req: Request, res: Response): Promise<Response>
         message: 'Cart item not found',
       });
     }
-    const item = doc.items.id(itemId as string);
+    const item = doc.items.find((i) => i._id != null && String(i._id) === itemId);
     if (!item) {
       return res.status(HTTP_STATUS.NOT_FOUND).json({
         success: false,
@@ -276,7 +282,7 @@ export const updateItem = async (req: Request, res: Response): Promise<Response>
 export const removeItem = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
-    const itemId = req.params?.itemId;
+    const itemId = paramString(req.params?.itemId);
 
     if (!userId || !mongoose.isValidObjectId(userId)) {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({ success: false, message: 'Unauthorized' });

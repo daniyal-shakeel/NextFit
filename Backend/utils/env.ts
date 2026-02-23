@@ -31,7 +31,7 @@ export const getEmailConfig = (): EmailConfig => {
 
   // Email settings
   const emailFrom = process.env.EMAIL_FROM || 'noreply@nextfit.com';
-  const appBaseUrl = process.env.APP_BASE_URL || 'http://localhost:8080';
+  const appBaseUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
 
   // Validation
   if (provider === 'smtp' && !smtpHost) {

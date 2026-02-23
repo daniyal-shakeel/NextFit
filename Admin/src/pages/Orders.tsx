@@ -16,7 +16,6 @@ function formatDate(s: string | undefined) {
 export default function Orders() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const userIdFromUrl = searchParams.get("userId") ?? "";
   const [user, setUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<OrderItem[]>([]);

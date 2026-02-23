@@ -2,14 +2,14 @@
  * Admin API client – uses same backend as Frontend, withCredentials for cookies.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001/api";
+const VITE_API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001/api";
 
 async function request<T>(
   endpoint: string,
   options: RequestInit & { data?: object } = {}
 ): Promise<T> {
   const { data, ...fetchOptions } = options;
-  const url = endpoint.startsWith("http") ? endpoint : `${API_BASE_URL.replace(/\/$/, "")}/${endpoint.replace(/^\//, "")}`;
+  const url = endpoint.startsWith("http") ? endpoint : `${VITE_API_BASE_URL.replace(/\/$/, "")}/${endpoint.replace(/^\//, "")}`;
   const res = await fetch(url, {
     ...fetchOptions,
     credentials: "include",
