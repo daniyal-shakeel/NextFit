@@ -7,17 +7,14 @@ Nothing is installed globally.
 
 ## First Time Setup
 
-**Linux / Mac / WSL:**
-```bash
-cd NextFit/AI/
-bash setup.sh
-```
+Install Python deps from `requirements.txt` inside the venv:
 
-**Windows (PowerShell):**
 ```powershell
 cd NextFit\AI
-.\setup.ps1
+python -m pip install -r requirements.txt
 ```
+
+The legacy `setup.ps1` / `setup.sh` scripts exist but are no longer required for the current (diffusers-only) pipeline.
 
 ## Run Server (Every Time)
 
@@ -41,9 +38,14 @@ python main.py
 deactivate  # when done
 ```
 
-## CatVTON
+## Model
 
-The service uses [CatVTON](https://github.com/Zheng-Chong/CatVTON) for virtual try-on. `setup.sh` clones the repo into `NextFit/AI/CatVTON/`. **The CatVTON repo is required** — if missing, the service will raise: `CatVTON repo not found. Run setup.sh first.`
+This service uses the standard HuggingFace `diffusers` inpainting pipeline:
+
+- Model ID: `stabilityai/stable-diffusion-2-inpainting`
+- Pipeline: `StableDiffusionInpaintPipeline`
+
+No third-party repos are cloned and no external code is vendored.
 
 ## Vast.ai Deploy
 
@@ -59,6 +61,15 @@ The service uses [CatVTON](https://github.com/Zheng-Chong/CatVTON) for virtual t
 ## GCP Deploy
 
 Same steps — expose port 8000, use external IP as `VITE_AI_API_URL`.
+
+## Modal Deploy
+
+From repo root:
+
+```powershell
+cd C:\MEGA\University\smester 7\FYP\NextFit\AI
+modal deploy modal_app.py
+```
 
 ## Environment Variables
 
