@@ -17,7 +17,7 @@ Write-Host "Device: $deviceInfo"
 
 $skipModel = python -c "from dotenv import load_dotenv; import os; load_dotenv(); print(os.getenv('SKIP_MODEL_LOAD', 'false'))"
 if ($skipModel -eq "true") {
-    Write-Host "Model loading: SKIPPED - set SKIP_MODEL_LOAD=false on Vast.ai" -ForegroundColor Yellow
+    Write-Host "Model loading: SKIPPED - set SKIP_MODEL_LOAD=false on Modal.com" -ForegroundColor Yellow
 } else {
     Write-Host "Model loading: ENABLED - downloading if not cached" -ForegroundColor Green
 }

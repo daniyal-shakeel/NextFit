@@ -3,6 +3,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -15,7 +16,32 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="NextFit AI Try-On Service")
+pipeline = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    global pipeline
+    skip = os.getenv("SKIP_MODEL_LOAD", "false").lower() == "true"
+    if skip:
+        logger.info("SKIP_MODEL_LOAD=true - model loading skipped (local test mode)")
+    else:
+        logger.info("Loading model...")
+        try:
+            pipeline = TryOnPipeline(
+                model_id=os.getenv("MODEL_ID", "sd2-community/stable-diffusion-2-inpainting"),
+                cache_dir=os.getenv("MODEL_CACHE_DIR", "./models")
+            )
+            logger.info("Model loaded successfully")
+        except Exception as e:
+            logger.error(f"Model load failed: {e}")
+            raise
+    yield
+    # shutdown (nothing needed)
+
+
+app = FastAPI(title="NextFit AI Try-On Service", lifespan=lifespan)
 
 # CORS — flexible based on env
 cors_origin = os.getenv("CORS_ORIGIN", "*")
@@ -26,29 +52,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-pipeline = None
-
-
-@app.on_event("startup")
-async def startup():
-    global pipeline
-
-    skip = os.getenv("SKIP_MODEL_LOAD", "false").lower() == "true"
-    if skip:
-        logger.info("SKIP_MODEL_LOAD=true - model loading skipped (local test mode)")
-        return
-
-    logger.info("Loading CatVTON model...")
-    try:
-        pipeline = TryOnPipeline(
-            model_id=os.getenv("MODEL_ID", "zhengchong/CatVTON"),
-            cache_dir=os.getenv("MODEL_CACHE_DIR", "./models"),
-        )
-        logger.info("Model loaded successfully")
-    except Exception as e:
-        logger.error(f"Model load failed: {e}")
-        raise
 
 
 class TryOnRequest(BaseModel):
