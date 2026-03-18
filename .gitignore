@@ -116,3 +116,4 @@ uploads/
 
 # Docs folder if you want it ignored (you included it)
 docs/
+.cursor/
