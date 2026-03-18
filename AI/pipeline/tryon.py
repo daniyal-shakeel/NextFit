@@ -7,7 +7,7 @@ from diffusers import StableDiffusionInpaintPipeline
 class TryOnPipeline:
     def __init__(
         self,
-        model_id: str = "stabilityai/stable-diffusion-2-inpainting",
+        model_id: str = "sd2-community/stable-diffusion-2-inpainting",
         cache_dir: str = "./models",
     ):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"

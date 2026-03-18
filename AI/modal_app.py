@@ -47,7 +47,7 @@ class TryOnService:
             from pipeline.tryon import TryOnPipeline
 
             self.pipeline = TryOnPipeline(
-                model_id="stabilityai/stable-diffusion-2-inpainting",
+                model_id="sd2-community/stable-diffusion-2-inpainting",
                 cache_dir="/app/models",
             )
             print("Model loaded successfully")
