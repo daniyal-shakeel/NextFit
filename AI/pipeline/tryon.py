@@ -19,13 +19,6 @@ class TryOnPipeline:
             safety_checker=None,
         ).to(self.device)
 
-        if self.device == "cuda":
-            try:
-                self.pipe.enable_xformers_memory_efficient_attention()
-                print("xFormers enabled")
-            except Exception:
-                print("xFormers not available, continuing without it")
-
         print("Model loaded successfully")
 
     def run(

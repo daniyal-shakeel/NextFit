@@ -4,22 +4,25 @@ import sys
 app = modal.App("nextfit-ai-tryon")
 
 image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.12")
     .pip_install(
-        "fastapi==0.111.0",
-        "uvicorn==0.29.0",
+        "fastapi==0.135.1",
+        "uvicorn==0.42.0",
         "python-multipart==0.0.22",
         "python-dotenv==1.0.1",
-        "torch==2.1.2",
-        "torchvision==0.16.2",
-        "xformers==0.0.23.post1",
-        "diffusers==0.27.0",
-        "transformers==4.40.0",
-        "accelerate==0.29.0",
-        "safetensors==0.4.3",
-        "Pillow==10.3.0",
-        "numpy==1.26.4",
-        "opencv-python-headless==4.10.0.84",
+        "torch==2.10.0",
+        "torchvision==0.25.0",
+        "diffusers==0.37.0",
+        "transformers==5.3.0",
+        "huggingface-hub==1.7.1",
+        "accelerate==1.6.0",
+        "safetensors==0.5.3",
+        "Pillow==12.1.1",
+        "numpy==2.2.4",
+        "opencv-python-headless==4.13.0.92",
+    )
+    .run_commands(
+        "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit"
     )
 )
 
@@ -30,7 +33,6 @@ volume = modal.Volume.from_name("nextfit-models", create_if_missing=True)
     image=image,
     gpu="T4",
     volumes={"/app/models": volume},
-    mounts=[modal.Mount.from_local_dir(".", remote_path="/app/NextFit/AI")],
     scaledown_window=300,
 )
 class TryOnService:
