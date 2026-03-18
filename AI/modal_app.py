@@ -1,10 +1,12 @@
 import modal
+import os
 import sys
 
 app = modal.App("nextfit-ai-tryon")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
+    .apt_install("git")
     .pip_install(
         "fastapi==0.135.1",
         "uvicorn==0.42.0",
@@ -34,6 +36,7 @@ volume = modal.Volume.from_name("nextfit-models", create_if_missing=True)
     gpu="T4",
     volumes={"/app/models": volume},
     scaledown_window=300,
+    secrets=[modal.Secret.from_name("huggingface-secret")],
 )
 class TryOnService:
 

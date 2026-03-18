@@ -1,3 +1,4 @@
+import os
 import torch
 from PIL import Image, ImageDraw
 from diffusers import StableDiffusionInpaintPipeline
@@ -17,6 +18,7 @@ class TryOnPipeline:
             torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
             cache_dir=cache_dir,
             safety_checker=None,
+            token=os.environ.get("HF_TOKEN"),
         ).to(self.device)
 
         print("Model loaded successfully")
