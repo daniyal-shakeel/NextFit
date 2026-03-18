@@ -21,6 +21,14 @@ class TryOnPipeline:
             token=os.environ.get("HF_TOKEN"),
         ).to(self.device)
 
+        self.pipe.load_ip_adapter(
+            "h94/IP-Adapter",
+            subfolder="models",
+            weight_name="ip-adapter_sd15.bin",
+            cache_dir=cache_dir,
+        )
+        self.pipe.set_ip_adapter_scale(0.8)
+
         print("Model loaded successfully")
 
     def run(
@@ -36,22 +44,12 @@ class TryOnPipeline:
         # Generate body region mask
         mask = self._generate_mask(person_resized, category)
 
-        # Paste garment thumbnail as visual hint in prompt context
-        # Build descriptive prompt from garment
-        prompt = (
-            "a photorealistic photo of a person wearing a shirt, "
-            "well-fitted clothing, natural lighting, high quality, detailed"
-        )
-        negative_prompt = (
-            "blurry, distorted, low quality, bad anatomy, "
-            "deformed, ugly, duplicate, watermark"
-        )
-
         result = self.pipe(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
+            prompt="person wearing this exact garment, photorealistic, high quality, natural lighting",
+            negative_prompt="blurry, distorted, deformed, low quality, watermark, wrong garment",
             image=person_resized,
             mask_image=mask,
+            ip_adapter_image=garment_resized,
             num_inference_steps=30,
             guidance_scale=7.5,
             height=512,
