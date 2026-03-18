@@ -5,6 +5,7 @@ import { Trash2, Plus, Minus, ShoppingBag, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store/useStore';
 import { toast } from 'sonner';
+import { CURRENCY } from '@/lib/constants';
 
 const CART_MIN_Q = 1;
 const CART_MAX_Q = 999;
@@ -94,7 +95,7 @@ export default function Cart() {
                     {item.size && `Size: ${item.size}`} {item.color && `• Color: ${item.color}`}
                   </p>
                   {item.customization && <p className="text-xs text-primary">Custom Design</p>}
-                  <p className="font-bold text-primary mt-2">${item.product.price.toFixed(2)}</p>
+                  <p className="font-bold text-primary mt-2">{CURRENCY} {item.product.price.toFixed(2)}</p>
                 </div>
                 <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-between">
                   <Button
@@ -136,15 +137,15 @@ export default function Cart() {
             <div className="space-y-3 mb-4 md:mb-6">
               <div className="flex justify-between text-sm md:text-base">
                 <span className="text-muted-foreground">Subtotal</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>{CURRENCY} {subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm md:text-base">
                 <span className="text-muted-foreground">Shipping</span>
-                <span>{shipping === 0 ? 'Free' : `$${shipping.toFixed(2)}`}</span>
+                <span>{shipping === 0 ? 'Free' : `${CURRENCY} ${shipping.toFixed(2)}`}</span>
               </div>
               <div className="border-t border-border pt-3 flex justify-between font-bold text-base md:text-lg">
                 <span>Total</span>
-                <span className="text-primary">${total.toFixed(2)}</span>
+                <span className="text-primary">{CURRENCY} {total.toFixed(2)}</span>
               </div>
             </div>
             <Link to="/checkout">

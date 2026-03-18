@@ -1,23 +1,37 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   Camera, 
   Upload, 
   Ruler, 
-  Shirt, 
   Eye,
   Check,
-  Info,
-  ChevronRight
+  Info
 } from 'lucide-react';
+import { CameraTryOn } from '@/components/virtual-tryon/CameraTryOn';
+import PhotoTryOn from '@/components/virtual-tryon/PhotoTryOn';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { productsAPI, apiProductToProduct } from '@/lib/api';
+import { mockProducts } from '@/lib/mockData';
 import type { Product } from '@/lib/types';
 import { toast } from 'sonner';
+import { CURRENCY } from '@/lib/constants';
+
+const DEV_SHIRT_PRODUCT: Product = {
+  id: 'dev-shirt',
+  name: 'Dev Shirt (Try-On)',
+  description: 'Hardcoded shirt for development',
+  price: 0,
+  category: 'shirts',
+  image: '/assets/dev-shirt.svg',
+  inStock: true,
+  rating: 0,
+  reviews: 0,
+};
 
 const sizeChart = {
   shirts: [
@@ -37,8 +51,16 @@ const sizeChart = {
 };
 
 export default function VirtualTryOn() {
+  const [searchParams] = useSearchParams();
+  const productIdFromUrl = searchParams.get('product');
+  const modeFromUrl = searchParams.get('mode');
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (modeFromUrl === 'camera') return 'camera';
+    if (modeFromUrl === 'image') return 'image';
+    return 'measurements';
+  });
   const [measurements, setMeasurements] = useState({
     chest: '',
     waist: '',
@@ -47,9 +69,6 @@ export default function VirtualTryOn() {
     weight: '',
   });
   const [recommendedSize, setRecommendedSize] = useState<string | null>(null);
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [tryOnResult, setTryOnResult] = useState<string | null>(null);
 
   const handleMeasurementChange = (key: string, value: string) => {
     setMeasurements((prev) => ({ ...prev, [key]: value }));
@@ -76,6 +95,8 @@ export default function VirtualTryOn() {
   const tryOnProducts = products.filter(
     (p) => p.category === 'shirts' || p.category === 'glasses' || p.category?.toLowerCase().includes('shirt') || p.category?.toLowerCase().includes('glass')
   );
+  const productsToShow = tryOnProducts.length > 0 ? tryOnProducts : products.slice(0, 6);
+  const cameraProducts = [DEV_SHIRT_PRODUCT, ...productsToShow];
 
   useEffect(() => {
     productsAPI
@@ -83,33 +104,26 @@ export default function VirtualTryOn() {
       .then((res) => {
         const list = (res.data ?? []).map(apiProductToProduct);
         setProducts(list);
-        const tryOn = list.filter((p) => p.category === 'shirts' || p.category === 'glasses' || p.category?.toLowerCase().includes('shirt') || p.category?.toLowerCase().includes('glass'));
-        if (tryOn.length > 0) setSelectedProduct(tryOn[0]);
-        else if (list.length > 0) setSelectedProduct(list[0]);
+        if (productIdFromUrl) {
+          const byId = list.find((p) => p.id === productIdFromUrl);
+          if (byId) setSelectedProduct(byId);
+          else {
+            const tryOn = list.filter((p) => p.category === 'shirts' || p.category === 'glasses' || p.category?.toLowerCase().includes('shirt') || p.category?.toLowerCase().includes('glass'));
+            if (tryOn.length > 0) setSelectedProduct(tryOn[0]);
+            else if (list.length > 0) setSelectedProduct(list[0]);
+          }
+        } else {
+          const tryOn = list.filter((p) => p.category === 'shirts' || p.category === 'glasses' || p.category?.toLowerCase().includes('shirt') || p.category?.toLowerCase().includes('glass'));
+          if (tryOn.length > 0) setSelectedProduct(tryOn[0]);
+          else if (list.length > 0) setSelectedProduct(list[0]);
+        }
       })
-      .catch(() => setProducts([]));
-  }, []);
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && selectedProduct) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setUploadedImage(reader.result as string);
-        toast.success('Image uploaded! Processing virtual try-on...');
-        setTimeout(() => {
-          setTryOnResult(selectedProduct.image);
-          toast.success('Virtual try-on complete!');
-        }, 2000);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleCameraStart = () => {
-    setIsCameraActive(true);
-    toast.info('Camera feature - AR filters coming soon!');
-  };
+      .catch(() => {
+        setProducts(mockProducts);
+        const tryOn = mockProducts.filter((p) => p.category === 'shirts' || p.category === 'glasses' || p.category?.toLowerCase().includes('shirt') || p.category?.toLowerCase().includes('glass'));
+        setSelectedProduct(tryOn.length > 0 ? tryOn[0] : mockProducts[0]);
+      });
+  }, [productIdFromUrl]);
 
   return (
     <div className="min-h-screen py-6 md:py-8">
@@ -128,7 +142,7 @@ export default function VirtualTryOn() {
           </p>
         </motion.div>
 
-        <Tabs defaultValue="measurements" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="w-full max-w-full md:max-w-md mb-6 md:mb-8 grid grid-cols-3">
             <TabsTrigger value="measurements" className="text-xs md:text-sm px-2 md:px-4">
               <Ruler className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
@@ -137,8 +151,8 @@ export default function VirtualTryOn() {
             </TabsTrigger>
             <TabsTrigger value="image" className="text-xs md:text-sm px-2 md:px-4">
               <Upload className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
-              <span className="hidden sm:inline">Upload Photo</span>
-              <span className="sm:hidden">Photo</span>
+              <span className="hidden sm:inline">AI Try-On</span>
+              <span className="sm:hidden">AI</span>
             </TabsTrigger>
             <TabsTrigger value="camera" className="text-xs md:text-sm px-2 md:px-4">
               <Camera className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
@@ -304,38 +318,18 @@ export default function VirtualTryOn() {
             </div>
           </TabsContent>
 
-          {/* Image Upload Tab */}
+          {/* AI Photo Try-On Tab */}
           <TabsContent value="image">
             <div className="grid lg:grid-cols-2 gap-6 md:gap-8">
-              <Card>
+              <Card className="md:order-1">
                 <CardHeader className="pb-4 md:pb-6">
-                  <CardTitle className="text-lg md:text-xl">Upload Your Photo</CardTitle>
+                  <CardTitle className="text-lg md:text-xl">AI Photo Try-On</CardTitle>
                   <CardDescription className="text-xs md:text-sm">
-                    Upload a clear photo of yourself and see how products look on you
+                    Upload your photo and select a product — AI generates a realistic result showing you wearing the garment.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 md:space-y-6">
-                  <label className="flex flex-col items-center justify-center w-full h-48 md:h-64 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary/50 transition-colors">
-                    {uploadedImage ? (
-                      <img
-                        src={uploadedImage}
-                        alt="Uploaded"
-                        className="w-full h-full object-cover rounded-lg"
-                      />
-                    ) : (
-                      <>
-                        <Upload className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground mb-3 md:mb-4" />
-                        <span className="text-sm md:text-base text-muted-foreground">Click to upload your photo</span>
-                        <span className="text-xs text-muted-foreground mt-1">JPG, PNG up to 10MB</span>
-                      </>
-                    )}
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                    />
-                  </label>
+                  <PhotoTryOn selectedProduct={selectedProduct} />
 
                   <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg">
                     <Info className="h-4 w-4 md:h-5 md:w-5 text-accent-foreground mt-0.5 flex-shrink-0" />
@@ -351,14 +345,14 @@ export default function VirtualTryOn() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="md:order-2">
                 <CardHeader className="pb-4 md:pb-6">
                   <CardTitle className="text-lg md:text-xl">Select Product to Try</CardTitle>
-                  <CardDescription className="text-xs md:text-sm">Choose a product to virtually wear</CardDescription>
+                  <CardDescription className="text-xs md:text-sm">Choose a garment for AI try-on</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 gap-2 md:gap-3 max-h-[300px] md:max-h-[400px] overflow-y-auto">
-                    {tryOnProducts.map((product) => (
+                    {cameraProducts.map((product) => (
                       <button
                         key={product.id}
                         onClick={() => setSelectedProduct(product)}
@@ -374,27 +368,10 @@ export default function VirtualTryOn() {
                           className="w-full aspect-square object-cover rounded-md mb-2"
                         />
                         <p className="text-xs md:text-sm font-medium line-clamp-1">{product.name}</p>
-                        <p className="text-xs text-muted-foreground">${product.price}</p>
+                        <p className="text-xs text-muted-foreground">{product.id === 'dev-shirt' ? 'Dev' : `${CURRENCY} ${product.price}`}</p>
                       </button>
                     ))}
                   </div>
-
-                  {tryOnResult && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="mt-4 p-3 md:p-4 bg-primary/10 rounded-lg text-center"
-                    >
-                      <Badge className="mb-2">Try-On Result</Badge>
-                      <p className="text-xs md:text-sm text-muted-foreground">
-                        AI virtual try-on processing complete!
-                      </p>
-                      <Button className="mt-3" size="sm">
-                        View Result
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </motion.div>
-                  )}
                 </CardContent>
               </Card>
             </div>
@@ -402,48 +379,64 @@ export default function VirtualTryOn() {
 
           {/* Live Camera Tab */}
           <TabsContent value="camera">
-            <Card className="max-w-2xl mx-auto">
-              <CardHeader className="pb-4 md:pb-6">
-                <CardTitle className="text-lg md:text-xl">Live Camera Try-On</CardTitle>
-                <CardDescription className="text-xs md:text-sm">
-                  Use your camera to try products in real-time with AR filters
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4 md:space-y-6">
-                <div className="aspect-video bg-foreground/5 rounded-lg flex items-center justify-center border border-border">
-                  {isCameraActive ? (
-                    <div className="text-center p-4">
-                      <Camera className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mx-auto mb-3 md:mb-4" />
-                      <p className="text-sm md:text-base text-muted-foreground">Camera stream would appear here</p>
-                      <p className="text-xs md:text-sm text-muted-foreground mt-1">AR feature coming soon!</p>
-                    </div>
-                  ) : (
-                    <div className="text-center p-4">
-                      <Camera className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mx-auto mb-3 md:mb-4" />
-                      <p className="text-base md:text-lg font-medium">Enable Camera</p>
-                      <p className="text-xs md:text-sm text-muted-foreground">
-                        Allow camera access to use AR try-on
-                      </p>
-                    </div>
-                  )}
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+              <Card className="md:order-1">
+                <CardHeader className="pb-4 md:pb-6">
+                  <CardTitle className="text-lg md:text-xl">Live Camera Try-On</CardTitle>
+                  <CardDescription className="text-xs md:text-sm">
+                    Stand in frame to see the shirt overlay on your torso in real-time. Works with whatever you&apos;re wearing — no need to remove your shirt.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 md:space-y-6">
+                  <CameraTryOn selectedProduct={selectedProduct} />
 
-                <Button className="w-full" onClick={handleCameraStart} size="lg">
-                  <Camera className="h-4 w-4 mr-2" />
-                  {isCameraActive ? 'Camera Active' : 'Start Camera'}
-                </Button>
-
-                <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg">
-                  <Info className="h-4 w-4 md:h-5 md:w-5 text-accent-foreground mt-0.5 flex-shrink-0" />
-                  <div className="text-xs md:text-sm text-muted-foreground">
-                    <p className="font-medium text-accent-foreground">Coming Soon!</p>
-                    <p className="mt-1">
-                      Real-time AR try-on for glasses and accessories is under development.
-                    </p>
+                  <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg">
+                    <Info className="h-4 w-4 md:h-5 md:w-5 text-accent-foreground mt-0.5 flex-shrink-0" />
+                    <div className="text-xs md:text-sm text-muted-foreground">
+                      <p className="font-medium text-accent-foreground">Tips for best results:</p>
+                      <ul className="mt-1 space-y-1">
+                        <li>• Works with your clothes on — keep your shirt on</li>
+                        <li>• Stand 2–3 feet from camera</li>
+                        <li>• Ensure shoulders and torso are visible</li>
+                        <li>• Product images work best with transparent backgrounds</li>
+                      </ul>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+
+              <Card className="md:order-2">
+                <CardHeader className="pb-4 md:pb-6">
+                  <CardTitle className="text-lg md:text-xl">Select Product to Try</CardTitle>
+                  <CardDescription className="text-xs md:text-sm">
+                    Choose a shirt to overlay on your camera feed
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-2 md:gap-3 max-h-[300px] md:max-h-[400px] overflow-y-auto">
+                    {cameraProducts.map((product) => (
+                      <button
+                        key={product.id}
+                        onClick={() => setSelectedProduct(product)}
+                        className={`p-2 md:p-3 rounded-lg border transition-all text-left ${
+                          selectedProduct?.id === product.id
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:border-primary/50'
+                        }`}
+                      >
+                        <img
+                          src={product.image}
+                          alt={product.name}
+                          className="w-full aspect-square object-cover rounded-md mb-2"
+                        />
+                        <p className="text-xs md:text-sm font-medium line-clamp-1">{product.name}</p>
+                        <p className="text-xs text-muted-foreground">{product.id === 'dev-shirt' ? 'Dev' : `${CURRENCY} ${product.price}`}</p>
+                      </button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

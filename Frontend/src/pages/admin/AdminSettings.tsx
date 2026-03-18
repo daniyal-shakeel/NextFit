@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { CURRENCY } from '@/lib/constants';
+
 const currencies = [
   { code: 'USD', name: 'US Dollar', symbol: '$' },
   { code: 'EUR', name: 'Euro', symbol: '€' },
@@ -23,7 +25,7 @@ const currencies = [
 
 const defaultSettings = {
   virtualTryOnEnabled: true,
-  currency: 'PKR',
+  currency: CURRENCY,
   taxRate: 8.5,
   shippingFee: 9.99,
   freeShippingThreshold: 100,
@@ -157,7 +159,7 @@ const AdminSettings = () => {
               <Label className="text-sm">Confirmation Message Template</Label>
               <Input 
                 placeholder="Message template" 
-                defaultValue="Hi {name}! Please confirm your order #{orderId} for ${total}. Reply YES to confirm."
+                defaultValue={`Hi {name}! Please confirm your order #{orderId} for ${CURRENCY} {total}. Reply YES to confirm.`}
               />
               <p className="text-xs text-muted-foreground">
                 Available variables: {'{name}'}, {'{orderId}'}, {'{total}'}, {'{items}'}

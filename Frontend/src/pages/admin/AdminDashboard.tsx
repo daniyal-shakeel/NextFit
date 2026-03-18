@@ -12,6 +12,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { adminAPI, type AdminStats } from '@/lib/api';
+import { CURRENCY } from '@/lib/constants';
 
 const StatCard = ({ 
   title, 
@@ -91,7 +92,7 @@ const AdminDashboard = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <StatCard 
           title="Total Revenue" 
-          value={stats ? `PKR ${(stats.totalRevenue ?? 0).toLocaleString()}` : '—'}
+          value={stats ? `${CURRENCY} ${(stats.totalRevenue ?? 0).toLocaleString()}` : '—'}
           icon={DollarSign}
         />
         <StatCard 
@@ -166,7 +167,7 @@ const AdminDashboard = () => {
                       <p className="text-xs md:text-sm text-muted-foreground truncate">{String(order.userId)}</p>
                     </div>
                     <div className="text-right flex-shrink-0 ml-3">
-                      <p className="font-medium text-sm md:text-base">PKR {order.total}</p>
+                      <p className="font-medium text-sm md:text-base">{CURRENCY} {order.total}</p>
                       <Badge 
                         variant={
                           order.status === 'delivered' ? 'default' :

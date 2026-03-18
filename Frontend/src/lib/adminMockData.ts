@@ -1,5 +1,6 @@
 import { mockProducts, mockOrders as baseOrders } from './mockData';
 import { Order, User, Product } from './types';
+import { CURRENCY } from './constants';
 
 export interface AdminUser extends User {
   status: 'active' | 'inactive' | 'banned';
@@ -211,7 +212,7 @@ export const mockDiscounts: Discount[] = [
 
 export const mockAdminSettings: AdminSettings = {
   virtualTryOnEnabled: true,
-  currency: 'USD',
+  currency: CURRENCY,
   taxRate: 8.5,
   shippingFee: 9.99,
   freeShippingThreshold: 100,

@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { CURRENCY } from '@/lib/constants';
 import { adminAPI } from '@/lib/api';
 
 interface AdminUserRow {
@@ -172,7 +173,7 @@ const AdminUsers = () => {
                   </Badge>
                   <span className="text-muted-foreground">{user.ordersCount} orders</span>
                   <span className="text-muted-foreground">•</span>
-                  <span className="font-medium">${user.totalSpent.toFixed(2)}</span>
+                  <span className="font-medium">{CURRENCY} {user.totalSpent.toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{user.phone || 'No phone'}</span>
@@ -212,7 +213,7 @@ const AdminUsers = () => {
                     </TableCell>
                     <TableCell>{user.phone || '-'}</TableCell>
                     <TableCell>{user.ordersCount}</TableCell>
-                    <TableCell className="font-medium">${user.totalSpent.toFixed(2)}</TableCell>
+                    <TableCell className="font-medium">{CURRENCY} {user.totalSpent.toFixed(2)}</TableCell>
                     <TableCell>
                       <Badge className={statusColors[(user.accountStatus ?? 'active')]}>
                         {(user.accountStatus ?? 'active')}

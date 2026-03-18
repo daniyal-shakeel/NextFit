@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useStore } from '@/store/useStore';
 import { toast } from 'sonner';
+import { CURRENCY } from '@/lib/constants';
 
 interface ProductCardProps {
   product: Product;
@@ -114,7 +115,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
             
             <div className="flex items-center justify-between pt-2">
               <span className="text-lg font-bold text-primary">
-                ${product.price.toFixed(2)}
+                {CURRENCY} {product.price.toFixed(2)}
               </span>
               {product.isCustomizable && (
                 <Badge variant="outline" className="text-xs">

@@ -41,6 +41,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { productsAPI, apiProductToProduct } from '@/lib/api';
 import type { Product } from '@/lib/types';
+import { CURRENCY } from '@/lib/constants';
 
 const AdminProducts = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -121,7 +122,7 @@ const AdminProducts = () => {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="price">Price ($)</Label>
+                  <Label htmlFor="price">Price ({CURRENCY})</Label>
                   <Input id="price" type="number" placeholder="0.00" />
                 </div>
                 <div className="space-y-2">
@@ -243,7 +244,7 @@ const AdminProducts = () => {
                     </DropdownMenu>
                   </div>
                   <div className="flex items-center justify-between mt-2">
-                    <p className="font-medium">${product.price}</p>
+                    <p className="font-medium">{CURRENCY} {product.price}</p>
                     <Badge variant={product.inStock ? 'default' : 'destructive'} className="text-xs">
                       {product.inStock ? 'In Stock' : 'Out of Stock'}
                     </Badge>
@@ -288,7 +289,7 @@ const AdminProducts = () => {
                       </div>
                     </TableCell>
                     <TableCell className="capitalize">{product.category}</TableCell>
-                    <TableCell className="font-medium">${product.price}</TableCell>
+                    <TableCell className="font-medium">{CURRENCY} {product.price}</TableCell>
                     <TableCell>
                       <Badge variant={product.inStock ? 'default' : 'destructive'}>
                         {product.inStock ? 'In Stock' : 'Out of Stock'}

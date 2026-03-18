@@ -12,6 +12,7 @@ import { SavedDesigns } from '@/components/profile/SavedDesigns';
 import { useFeatureConfig } from '@/lib/featureConfig';
 import { ordersAPI, customersAPI, type OrderResponse } from '@/lib/api';
 import { useStore } from '@/store/useStore';
+import { CURRENCY } from '@/lib/constants';
 import type { UserMeasurements } from '@/lib/types';
 
 function mapApiMeasurements(m: {
@@ -241,7 +242,7 @@ const Account = () => {
                     {orders.map((order) => (
                       <div key={order._id} className="flex justify-between items-center p-4 border rounded-lg">
                         <div>
-                          <p className="font-medium font-mono text-sm">{order._id}</p>
+                          <p className="font-medium font-mono text-sm">{order.orderNumber ?? order._id}</p>
                           <p className="text-sm text-muted-foreground">
                             {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : '—'} • {order.lineItems?.length ?? 0} item(s)
                           </p>
@@ -250,7 +251,7 @@ const Account = () => {
                           <Badge variant={order.status === 'delivered' ? 'default' : 'secondary'}>
                             {order.status}
                           </Badge>
-                          <span className="font-medium">${order.total?.toFixed(2) ?? '0.00'}</span>
+                          <span className="font-medium">{CURRENCY} {order.total?.toFixed(2) ?? '0.00'}</span>
                           <Link to={`/order/${order._id}`}>
                             <Button size="sm" variant="outline">Track</Button>
                           </Link>

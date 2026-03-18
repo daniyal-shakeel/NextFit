@@ -21,6 +21,7 @@ import { productsAPI, apiProductToProduct } from '@/lib/api';
 import { useStore } from '@/store/useStore';
 import { ChatMessage, Product } from '@/lib/types';
 import { toast } from 'sonner';
+import { CURRENCY } from '@/lib/constants';
 
 const quickActions = [
   { icon: TrendingUp, label: 'Trending Products', query: 'Show me trending products' },
@@ -266,7 +267,7 @@ export default function AIAssistant() {
                                 </p>
                                 <div className="flex items-center justify-between mt-1">
                                   <span className="text-xs font-bold text-primary">
-                                    ${product.price}
+                                    {CURRENCY} {product.price}
                                   </span>
                                   <Button
                                     size="sm"

@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useStore } from '@/store/useStore';
 import { ordersAPI, addressesAPI, type AddressResponse } from '@/lib/api';
 import { toast } from 'sonner';
+import { CURRENCY } from '@/lib/constants';
 
 const steps = ['Shipping', 'Payment', 'Review'];
 
@@ -466,7 +467,7 @@ export default function Checkout() {
                         <p className="font-medium text-sm md:text-base truncate">{item.product.name}</p>
                         <p className="text-xs md:text-sm text-muted-foreground">Qty: {item.quantity}</p>
                       </div>
-                      <p className="font-medium text-sm md:text-base">${(item.product.price * item.quantity).toFixed(2)}</p>
+                      <p className="font-medium text-sm md:text-base">{CURRENCY} {(item.product.price * item.quantity).toFixed(2)}</p>
                     </div>
                   ))}
                 </div>
@@ -491,7 +492,7 @@ export default function Checkout() {
               {cart.map((item) => (
                 <div key={`${item.product.id}-${item.size}`} className="flex justify-between text-xs md:text-sm">
                   <span className="text-muted-foreground truncate flex-1 mr-2">{item.product.name} x{item.quantity}</span>
-                  <span>${(item.product.price * item.quantity).toFixed(2)}</span>
+                  <span>{CURRENCY} {(item.product.price * item.quantity).toFixed(2)}</span>
                 </div>
               ))}
             </div>
@@ -501,20 +502,20 @@ export default function Checkout() {
             <div className="space-y-2 md:space-y-3">
               <div className="flex justify-between text-sm md:text-base">
                 <span className="text-muted-foreground">Subtotal</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>{CURRENCY} {subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm md:text-base">
                 <span className="text-muted-foreground">Shipping</span>
-                <span>{shipping === 0 ? 'Free' : `$${shipping.toFixed(2)}`}</span>
+                <span>{shipping === 0 ? 'Free' : `${CURRENCY} ${shipping.toFixed(2)}`}</span>
               </div>
               <div className="flex justify-between text-sm md:text-base">
                 <span className="text-muted-foreground">Tax (10%)</span>
-                <span>${tax.toFixed(2)}</span>
+                <span>{CURRENCY} {tax.toFixed(2)}</span>
               </div>
               <Separator />
               <div className="flex justify-between font-bold text-base md:text-lg">
                 <span>Total</span>
-                <span className="text-primary">${total.toFixed(2)}</span>
+                <span className="text-primary">{CURRENCY} {total.toFixed(2)}</span>
               </div>
             </div>
 

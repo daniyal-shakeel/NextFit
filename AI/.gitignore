@@ -1,0 +1,23 @@
+# Virtual environment — never commit
+venv/
+.venv/
+env/
+
+# Model weights — too large for git
+models/
+
+# CatVTON repo clone
+CatVTON/
+
+# Environment secrets
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Logs
+*.log

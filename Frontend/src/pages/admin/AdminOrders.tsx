@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { CURRENCY } from '@/lib/constants';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -194,7 +195,7 @@ const AdminOrders = () => {
                       </Badge>
                     )}
                   </div>
-                  <p className="font-medium">PKR {order.total}</p>
+                  <p className="font-medium">{CURRENCY} {order.total}</p>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{order.items.length} item(s)</span>
@@ -230,7 +231,7 @@ const AdminOrders = () => {
                       </div>
                     </TableCell>
                     <TableCell>{order.items.length} item(s)</TableCell>
-                    <TableCell className="font-medium">PKR {order.total}</TableCell>
+                    <TableCell className="font-medium">{CURRENCY} {order.total}</TableCell>
                     <TableCell>
                       <Badge className={statusColors[order.status]}>
                         {order.status}
@@ -325,7 +326,7 @@ const AdminOrders = () => {
                           {item.size && `Size: ${item.size}`} {item.color && `• Color: ${item.color}`} • Qty: {item.quantity}
                         </p>
                       </div>
-                      <p className="font-medium text-sm md:text-base">${item.product.price * item.quantity}</p>
+                      <p className="font-medium text-sm md:text-base">{CURRENCY} {item.product.price * item.quantity}</p>
                     </div>
                   ))}
                 </div>

@@ -23,6 +23,7 @@ import { AddressBook } from '@/components/profile/AddressBook';
 import { SavedDesigns } from '@/components/profile/SavedDesigns';
 import { ordersAPI, addressesAPI, getAvatarUrl, type OrderResponse } from '@/lib/api';
 import { useStore } from '@/store/useStore';
+import { CURRENCY } from '@/lib/constants';
 
 const Profile = () => {
   const { 
@@ -181,7 +182,7 @@ const Profile = () => {
                 {orders.slice(0, 3).map((order) => (
                   <div key={order._id} className="flex justify-between items-center p-4 border rounded-lg">
                     <div>
-                      <p className="font-medium font-mono text-sm">{order._id}</p>
+                      <p className="font-medium font-mono text-sm">{order.orderNumber ?? order._id}</p>
                       <p className="text-sm text-muted-foreground">
                         {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : '—'} • {order.lineItems?.length ?? 0} item(s)
                       </p>
@@ -190,7 +191,7 @@ const Profile = () => {
                       <Badge variant={order.status === 'delivered' ? 'default' : 'secondary'}>
                         {order.status}
                       </Badge>
-                      <span className="font-medium">${order.total}</span>
+                      <span className="font-medium">{CURRENCY} {order.total}</span>
                       <Link to={`/order/${order._id}`}>
                         <Button size="sm" variant="outline">Track</Button>
                       </Link>

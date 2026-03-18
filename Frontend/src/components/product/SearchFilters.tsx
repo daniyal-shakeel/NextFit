@@ -21,6 +21,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import { useStore } from '@/store/useStore';
+import { CURRENCY } from '@/lib/constants';
 
 interface SearchFiltersProps {
   onSearch: (query: string) => void;
@@ -232,8 +233,8 @@ export function SearchFilters({
                   step={Math.max(1, Math.floor(priceMax / 50))}
                 />
                 <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>${priceRange[0]}</span>
-                  <span>${priceRange[1]}</span>
+                  <span>{CURRENCY} {priceRange[0]}</span>
+                  <span>{CURRENCY} {priceRange[1]}</span>
                 </div>
               </div>
 

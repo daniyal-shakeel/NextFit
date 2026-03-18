@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Heart,
@@ -13,9 +13,18 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+  Camera,
+  Upload,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { productsAPI, apiProductToProduct } from '@/lib/api';
@@ -23,6 +32,7 @@ import type { Product } from '@/lib/types';
 import { useStore } from '@/store/useStore';
 import { toast } from 'sonner';
 import { ProductCard } from '@/components/product/ProductCard';
+import { CURRENCY } from '@/lib/constants';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -37,6 +47,7 @@ export default function ProductDetail() {
   const [zoomOrigin, setZoomOrigin] = useState<{ x: number; y: number } | null>(null);
   const galleryRef = useRef<HTMLDivElement>(null);
   const { addToCart } = useStore();
+  const navigate = useNavigate();
 
   const handleGalleryMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -254,7 +265,7 @@ export default function ProductDetail() {
               </div>
 
               <p className="text-3xl font-bold text-primary">
-                ${product.price.toFixed(2)}
+                {CURRENCY} {product.price.toFixed(2)}
               </p>
             </div>
 
@@ -345,6 +356,30 @@ export default function ProductDetail() {
               </Button>
             </div>
 
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="lg" variant="secondary" className="w-full">
+                  <Camera className="h-5 w-5 mr-2" />
+                  Try on
+                  <ChevronDown className="h-4 w-4 ml-2" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuItem
+                  onClick={() => navigate(`/virtual-try-on?product=${product.id}&mode=image`)}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Using photo
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => navigate(`/virtual-try-on?product=${product.id}&mode=camera`)}
+                >
+                  <Camera className="h-4 w-4 mr-2" />
+                  Live camera
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             {/* Customize Link */}
             {product.isCustomizable && (
               <Link to={`/customize?product=${product.id}`}>
@@ -360,7 +395,7 @@ export default function ProductDetail() {
               <div className="text-center">
                 <Truck className="h-6 w-6 mx-auto mb-2 text-primary" />
                 <p className="text-sm font-medium">Free Shipping</p>
-                <p className="text-xs text-muted-foreground">On orders over $100</p>
+                <p className="text-xs text-muted-foreground">On orders over {CURRENCY} 100</p>
               </div>
               <div className="text-center">
                 <RotateCcw className="h-6 w-6 mx-auto mb-2 text-primary" />
@@ -446,7 +481,7 @@ export default function ProductDetail() {
                   <Check className="h-5 w-5 text-primary mt-0.5" />
                   <div>
                     <p className="font-medium">Free Standard Shipping</p>
-                    <p className="text-sm text-muted-foreground">On orders over $100. Delivery in 5-7 business days.</p>
+                    <p className="text-sm text-muted-foreground">On orders over {CURRENCY} 100. Delivery in 5-7 business days.</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
