@@ -32,7 +32,6 @@ class TryOnPipeline:
         self.pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
             model_id,
             torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
-            variant="fp16",
             cache_dir=cache_dir,
             token=token,
         )
