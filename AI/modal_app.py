@@ -6,7 +6,7 @@ app = modal.App("nextfit-ai-tryon")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .apt_install("git")
+    .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0")
     .pip_install(
         "fastapi==0.135.1",
         "uvicorn==0.42.0",
@@ -27,8 +27,11 @@ image = (
         "controlnet-aux==0.0.9",
     )
     .run_commands(
-        "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit",
         'python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id=\'yisol/IDM-VTON\', cache_dir=\'/app/model_cache\')"',
+    )
+    .run_commands(
+        "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit",
+        force_build=True,
     )
 )
 

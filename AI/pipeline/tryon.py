@@ -2,7 +2,6 @@ import os
 import torch
 from PIL import Image
 from diffusers import StableDiffusionXLInpaintPipeline
-from huggingface_hub import snapshot_download
 
 from pipeline.preprocessing.pose import extract_pose
 from pipeline.preprocessing.parsing import parse_human
@@ -19,16 +18,7 @@ class TryOnPipeline:
         token = os.environ.get("HF_TOKEN")
 
         print(f"[TryOn] Device: {self.device}")
-        print(f"[TryOn] Downloading/caching model: {model_id}")
-
-        snapshot_download(
-            repo_id=model_id,
-            cache_dir=cache_dir,
-            token=token,
-        )
-        print("[TryOn] Model weights cached")
-
-        print("[TryOn] Loading StableDiffusionXLInpaintPipeline...")
+        print(f"[TryOn] Loading model: {model_id}")
         self.pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
             model_id,
             torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
