@@ -27,7 +27,11 @@ image = (
         "controlnet-aux==0.0.9",
     )
     .run_commands(
-        'python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id=\'yisol/IDM-VTON\', cache_dir=\'/app/model_cache\')"',
+        'python -c "'
+        'from huggingface_hub import snapshot_download; '
+        'snapshot_download(repo_id=\'runwayml/stable-diffusion-inpainting\', cache_dir=\'/app/model_cache\'); '
+        'snapshot_download(repo_id=\'h94/IP-Adapter\', cache_dir=\'/app/model_cache\')'
+        '"',
     )
     .run_commands(
         "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit",
@@ -56,7 +60,7 @@ class TryOnService:
             from pipeline.tryon import TryOnPipeline
 
             self.pipeline = TryOnPipeline(
-                model_id="yisol/IDM-VTON",
+                model_id="runwayml/stable-diffusion-inpainting",
                 cache_dir="/app/model_cache",
             )
             print("Model loaded successfully")
