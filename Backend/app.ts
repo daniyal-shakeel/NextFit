@@ -15,17 +15,16 @@ import invoiceRouter from './routes/invoice.js';
 import addressRouter from './routes/address.js';
 import inventoryRouter from './routes/inventory.js';
 import reportsRouter from './routes/reports.js';
+import tryonRouter from './routes/tryon.js';
 
 // Load environment variables
 dotenv.config();
 
-if(!process.env.MONGODB_URI) {
-    console.error('MONGODB_URI is not set');
-    process.exit(1);
-} else {
-    // Connect to MongoDB
-    connectDB();
+if (!process.env.MONGODB_URI) {
+  console.warn('MONGODB_URI is not set. Using default mongodb://localhost:27017');
 }
+// Connect to MongoDB (non-fatal on failure; retries in db.ts)
+void connectDB();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -67,6 +66,7 @@ app.use('/api/invoices', invoiceRouter);
 app.use('/api/addresses', addressRouter);
 app.use('/api/inventory', inventoryRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api', tryonRouter);
 
 // Start server
 app.listen(PORT, () => {

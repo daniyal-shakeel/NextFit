@@ -20,15 +20,15 @@ image = (
         "accelerate==1.6.0",
         "safetensors==0.5.3",
         "Pillow==12.1.1",
-        "numpy==2.2.4",
-        "opencv-python-headless==4.13.0.92",
+        "numpy==1.26.4",
+        "opencv-python-headless==4.9.0.80",
         "scipy==1.13.1",
         "mediapipe==0.10.18",
         "controlnet-aux==0.0.9",
     )
     .run_commands(
         "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit",
-        'python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id=\'yisol/IDM-VTON\', cache_dir=\'/app/models\')"',
+        'python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id=\'yisol/IDM-VTON\', cache_dir=\'/app/model_cache\')"',
     )
 )
 
@@ -54,7 +54,7 @@ class TryOnService:
 
             self.pipeline = TryOnPipeline(
                 model_id="yisol/IDM-VTON",
-                cache_dir="/app/models",
+                cache_dir="/app/model_cache",
             )
             print("Model loaded successfully")
         except Exception as e:

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
-const AI_API_URL = import.meta.env.VITE_AI_API_URL || 'http://localhost:8000';
+const BACKEND_URL =
+  import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 export function useTryOnApi() {
   const [isLoading, setIsLoading] = useState(false);
@@ -8,21 +9,54 @@ export function useTryOnApi() {
   const [error, setError] = useState<string | null>(null);
   const [processingTime, setProcessingTime] = useState<number | null>(null);
 
-  const tryOn = async (personImageBase64: string, garmentImageBase64: string) => {
+  const tryOn = async (
+    personImageBase64: string,
+    garmentImageBase64: string,
+    category = 'upper_body'
+  ) => {
     setIsLoading(true);
     setError(null);
     setResultImage(null);
     try {
-      const response = await fetch(`${AI_API_URL}/api/tryon`, {
+      const response = await fetch(`${BACKEND_URL}/api/tryon`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           person_image: personImageBase64,
           garment_image: garmentImageBase64,
-          category: 'upper_body',
+          category,
         }),
       });
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+      if (response.status === 504) {
+        setError('Request timed out');
+        return;
+      }
+      if (response.status === 503) {
+        setError('AI service is warming up, please try again');
+        return;
+      }
+      if (response.status === 400) {
+        const j = await response.json().catch(() => ({}));
+        setError(
+          typeof j.message === 'string' ? j.message : 'Invalid request'
+        );
+        return;
+      }
+      if (response.status === 502) {
+        const j = await response.json().catch(() => ({}));
+        setError(
+          typeof j.detail === 'string'
+            ? j.detail
+            : 'AI service error. Please try again.'
+        );
+        return;
+      }
+      if (!response.ok) {
+        setError(`Request failed (${response.status})`);
+        return;
+      }
+
       const data = await response.json();
       setResultImage(`data:image/png;base64,${data.result_image}`);
       setProcessingTime(data.processing_time);
