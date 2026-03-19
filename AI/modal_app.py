@@ -22,6 +22,9 @@ image = (
         "Pillow==12.1.1",
         "numpy==2.2.4",
         "opencv-python-headless==4.13.0.92",
+        "scipy==1.13.1",
+        "mediapipe==0.10.18",
+        "controlnet-aux==0.0.9",
     )
     .run_commands(
         "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit"
@@ -33,7 +36,9 @@ volume = modal.Volume.from_name("nextfit-models", create_if_missing=True)
 
 @app.cls(
     image=image,
-    gpu="T4",
+    gpu="L4",
+    cpu=4.0,
+    memory=16384,
     volumes={"/app/models": volume},
     scaledown_window=300,
     secrets=[modal.Secret.from_name("huggingface-secret")],
@@ -47,7 +52,7 @@ class TryOnService:
             from pipeline.tryon import TryOnPipeline
 
             self.pipeline = TryOnPipeline(
-                model_id="sd2-community/stable-diffusion-2-inpainting",
+                model_id="yisol/IDM-VTON",
                 cache_dir="/app/models",
             )
             print("Model loaded successfully")
@@ -64,7 +69,7 @@ class TryOnService:
             "status": "ok",
             "model_loaded": True,
             "deploy_mode": "modal",
-            "gpu": "T4"
+            "gpu": "L4"
         }
 
     @modal.fastapi_endpoint(method="POST")
