@@ -1,58 +1,48 @@
 import os
 import torch
-import numpy as np
 from PIL import Image
-from diffusers import AutoencoderKL
+from diffusers import StableDiffusionXLInpaintPipeline
 from huggingface_hub import snapshot_download
 
 from pipeline.preprocessing.pose import extract_pose
+from pipeline.preprocessing.parsing import parse_human
 from pipeline.preprocessing.masking import generate_cloth_mask
 from pipeline.preprocessing.warping import warp_garment
-from pipeline.preprocessing.parsing import parse_human
-
 
 TARGET_SIZE = (768, 1024)
 
 
 class TryOnPipeline:
-    def __init__(
-        self,
-        model_id: str = "yisol/IDM-VTON",
-        cache_dir: str = "./models",
-    ):
+    def __init__(self, model_id="yisol/IDM-VTON", cache_dir="./models"):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"[TryOn] Using device: {self.device}")
+        self.target_size = TARGET_SIZE
+        token = os.environ.get("HF_TOKEN")
 
-        # Download model weights if not cached
-        model_path = os.path.join(
-            cache_dir, model_id.replace("/", "--")
+        print(f"[TryOn] Device: {self.device}")
+        print(f"[TryOn] Downloading/caching model: {model_id}")
+
+        snapshot_download(
+            repo_id=model_id,
+            cache_dir=cache_dir,
+            token=token,
         )
-        if not os.path.exists(model_path):
-            print(f"[TryOn] Downloading {model_id}...")
-            snapshot_download(
-                repo_id=model_id,
-                local_dir=model_path,
-                token=os.environ.get("HF_TOKEN"),
-                ignore_patterns=["*.msgpack", "*.h5"],
-            )
-            print("[TryOn] Download complete")
+        print("[TryOn] Model weights cached")
 
-        # Load IDM-VTON pipeline
-        print("[TryOn] Loading IDM-VTON pipeline...")
-        from diffusers import StableDiffusionXLInpaintPipeline
-
+        print("[TryOn] Loading StableDiffusionXLInpaintPipeline...")
         self.pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-            model_path,
-            torch_dtype=torch.float16,
+            model_id,
+            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
             variant="fp16",
-            safety_checker=None,
-        ).to(self.device)
+            cache_dir=cache_dir,
+            token=token,
+        )
 
-        # Memory optimizations for L4
-        self.pipe.enable_model_cpu_offload()
-        self.pipe.enable_attention_slicing()
+        if self.device == "cuda":
+            self.pipe.enable_model_cpu_offload()
+            self.pipe.enable_attention_slicing()
+            print("[TryOn] GPU optimizations enabled (cpu_offload + attention_slicing)")
 
-        print("[TryOn] IDM-VTON loaded successfully")
+        print("[TryOn] IDM-VTON pipeline ready")
 
     def run(
         self,
@@ -60,57 +50,43 @@ class TryOnPipeline:
         garment_image: Image.Image,
         category: str = "upper_body",
     ) -> Image.Image:
+        print("[TryOn] === Starting try-on ===")
 
-        print("[TryOn] Starting preprocessing...")
+        # Resize inputs to target size
+        person_resized = person_image.resize(self.target_size).convert("RGB")
+        garment_resized = garment_image.resize(self.target_size).convert("RGB")
 
-        # Step 1: Resize inputs
-        person_resized = person_image.resize(TARGET_SIZE).convert("RGB")
-        garment_resized = garment_image.resize(TARGET_SIZE).convert("RGB")
+        # Step 1: Pose extraction
+        print("[TryOn] Step 1/4: Extracting pose landmarks...")
+        pose_data = extract_pose(person_resized)
+        print(f"[TryOn]   Found {len(pose_data['landmarks'])} landmarks")
 
-        # Step 2: Extract pose
-        try:
-            pose_data = extract_pose(person_resized)
-            print("[TryOn] Pose extracted successfully")
-        except ValueError as e:
-            print(f"[TryOn] Pose extraction failed: {e}")
-            raise
+        # Step 2: Human parsing
+        print("[TryOn] Step 2/4: Parsing human segmentation...")
+        parse_result = parse_human(person_resized)
+        print("[TryOn]   Human parsing complete")
 
-        # Step 3: Parse human body
-        parsed = parse_human(person_resized)
-        print("[TryOn] Human parsing complete")
+        # Step 3: Cloth masking
+        print(f"[TryOn] Step 3/4: Generating cloth mask (category={category})...")
+        cloth_mask = generate_cloth_mask(person_resized, pose_data, category)
+        print("[TryOn]   Cloth mask generated")
 
-        # Step 4: Generate cloth mask
-        mask = generate_cloth_mask(person_resized, pose_data, category)
-        print("[TryOn] Cloth mask generated")
+        # Step 4: Garment warping
+        print("[TryOn] Step 4/4: Warping garment to body proportions...")
+        warped_garment = warp_garment(garment_resized, pose_data, self.target_size)
+        print("[TryOn]   Garment warped")
 
-        # Step 5: Warp garment to body
-        warped_garment = warp_garment(garment_resized, pose_data, TARGET_SIZE)
-        print("[TryOn] Garment warped")
-
-        # Step 6: IDM-VTON inference
-        print("[TryOn] Running IDM-VTON inference...")
-        prompt = (
-            "a photo of a person wearing the garment, "
-            "photorealistic, high quality, natural lighting, "
-            "well-fitted clothing, detailed fabric texture"
-        )
-        negative_prompt = (
-            "low quality, blurry, distorted, deformed, "
-            "bad anatomy, watermark, cartoon, painting"
-        )
-
+        # Run diffusion pipeline
+        print("[TryOn] Running IDM-VTON inference (30 steps)...")
         result = self.pipe(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
+            prompt="person wearing this exact garment, photorealistic, high quality, natural lighting, well-fitted clothing",
+            negative_prompt="blurry, distorted, deformed, low quality, watermark, wrong garment, bad anatomy",
             image=person_resized,
-            mask_image=mask,
+            mask_image=cloth_mask,
             ip_adapter_image=warped_garment,
             num_inference_steps=30,
             guidance_scale=7.5,
-            strength=0.99,
-            height=TARGET_SIZE[1],
-            width=TARGET_SIZE[0],
         ).images[0]
 
-        print("[TryOn] Inference complete")
+        print("[TryOn] === Try-on complete ===")
         return result
