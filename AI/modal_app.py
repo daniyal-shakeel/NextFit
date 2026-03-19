@@ -27,7 +27,8 @@ image = (
         "controlnet-aux==0.0.9",
     )
     .run_commands(
-        "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit"
+        "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit",
+        'python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id=\'yisol/IDM-VTON\', cache_dir=\'/app/models\')"',
     )
 )
 
