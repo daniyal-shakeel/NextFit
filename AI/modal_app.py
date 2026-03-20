@@ -8,7 +8,7 @@ MODAL_GPU = os.getenv("MODAL_GPU", "L4")
 MODAL_CPU = float(os.getenv("MODAL_CPU", "4.0"))
 MODAL_MEMORY = int(os.getenv("MODAL_MEMORY", "16384"))
 MODAL_SCALEDOWN = int(os.getenv("MODAL_SCALEDOWN", "300"))
-MODEL_ID = os.getenv("MODEL_ID", "runwayml/stable-diffusion-inpainting")
+MODEL_ID = os.getenv("MODEL_ID", "diffusers/stable-diffusion-xl-1.0-inpainting-0.1")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -35,11 +35,13 @@ image = (
     .run_commands(
         'python -c "'
         'from huggingface_hub import snapshot_download; '
-        'snapshot_download(repo_id=\'runwayml/stable-diffusion-inpainting\', cache_dir=\'/app/model_cache\')'
+        'snapshot_download(repo_id=\'diffusers/stable-diffusion-xl-1.0-inpainting-0.1\', cache_dir=\'/app/model_cache\'); '
+        'snapshot_download(repo_id=\'h94/IP-Adapter\', allow_patterns=[\'sdxl_models/ip-adapter_sdxl.bin\', \'sdxl_models/image_encoder/**\'], cache_dir=\'/app/model_cache\')'
         '"',
     )
     .run_commands(
         "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit",
+        force_build=True,
     )
 )
 
@@ -64,7 +66,7 @@ class TryOnService:
             from pipeline.tryon import TryOnPipeline
 
             self.pipeline = TryOnPipeline(
-                model_id="runwayml/stable-diffusion-inpainting",
+                model_id="diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
                 cache_dir="/app/model_cache",
             )
             print("Model loaded successfully")
