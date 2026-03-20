@@ -1,41 +1,13 @@
-import cv2
-import numpy as np
 from PIL import Image
 
 L_SHOULDER = 11
 R_SHOULDER = 12
 L_HIP = 23
-R_HIP = 24
 
-PAD_X_RATIO = 0.12
-PAD_Y_TOP = 0.03
-PAD_Y_BOT = 0.05
-
-BG_THRESH = 40
-BG_SAMPLE = 10
-
-
-def _remove_background(img_arr: np.ndarray) -> np.ndarray:
-    """Return RGBA array with background pixels made transparent."""
-    h, w = img_arr.shape[:2]
-    corners = np.concatenate([
-        img_arr[:BG_SAMPLE, :BG_SAMPLE].reshape(-1, 3),
-        img_arr[:BG_SAMPLE, w - BG_SAMPLE:].reshape(-1, 3),
-        img_arr[h - BG_SAMPLE:, :BG_SAMPLE].reshape(-1, 3),
-        img_arr[h - BG_SAMPLE:, w - BG_SAMPLE:].reshape(-1, 3),
-    ])
-    bg_color = np.median(corners, axis=0).astype(np.float32)
-
-    diff = np.linalg.norm(img_arr.astype(np.float32) - bg_color, axis=2)
-    alpha = np.where(diff > BG_THRESH, 255, 0).astype(np.uint8)
-
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    alpha = cv2.morphologyEx(alpha, cv2.MORPH_CLOSE, kernel)
-    alpha = cv2.morphologyEx(alpha, cv2.MORPH_OPEN, kernel)
-    alpha = cv2.GaussianBlur(alpha, (5, 5), 0)
-
-    rgba = np.dstack([img_arr, alpha])
-    return rgba
+SCALE_W = 1.5
+SCALE_H = 1.3
+OFFSET_X = 0.10
+OFFSET_Y = 0.05
 
 
 def warp_garment(
@@ -47,43 +19,25 @@ def warp_garment(
     h = pose_data["image_height"]
     lms = pose_data["landmarks"]
 
-    def pt(idx):
-        return (lms[idx]["x"] * w, lms[idx]["y"] * h)
+    ls_x = lms[L_SHOULDER]["x"] * w
+    ls_y = lms[L_SHOULDER]["y"] * h
+    rs_x = lms[R_SHOULDER]["x"] * w
+    rs_y = lms[R_SHOULDER]["y"] * h
+    lh_y = lms[L_HIP]["y"] * h
 
-    ls = pt(L_SHOULDER)
-    rs = pt(R_SHOULDER)
-    lh = pt(L_HIP)
-    rh = pt(R_HIP)
+    shoulder_w = abs(rs_x - ls_x)
+    torso_h = abs(lh_y - min(ls_y, rs_y))
 
-    pad_x = abs(rs[0] - ls[0]) * PAD_X_RATIO
-    pad_y_top = abs(lh[1] - ls[1]) * PAD_Y_TOP
-    pad_y_bot = abs(lh[1] - ls[1]) * PAD_Y_BOT
+    gw = max(int(shoulder_w * SCALE_W), 1)
+    gh = max(int(torso_h * SCALE_H), 1)
 
-    dst = np.array([
-        [ls[0] - pad_x, min(ls[1], rs[1]) - pad_y_top],
-        [rs[0] + pad_x, min(ls[1], rs[1]) - pad_y_top],
-        [rh[0] + pad_x, max(lh[1], rh[1]) + pad_y_bot],
-        [lh[0] - pad_x, max(lh[1], rh[1]) + pad_y_bot],
-    ], dtype=np.float32)
+    garment_resized = garment_image.convert("RGBA").resize((gw, gh), Image.LANCZOS)
 
-    garment_rgb = np.array(garment_image.convert("RGB"))
-    garment_rgba = _remove_background(garment_rgb)
-
-    gw, gh = garment_image.size
-    src = np.array([
-        [0, 0],
-        [gw, 0],
-        [gw, gh],
-        [0, gh],
-    ], dtype=np.float32)
-
-    M = cv2.getPerspectiveTransform(src, dst)
+    paste_x = int(min(ls_x, rs_x) - gw * OFFSET_X)
+    paste_y = int(min(ls_y, rs_y) - gh * OFFSET_Y)
 
     tw, th = target_size
-    warped = cv2.warpPerspective(
-        garment_rgba, M, (tw, th),
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=(0, 0, 0, 0),
-    )
+    canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+    canvas.paste(garment_resized, (paste_x, paste_y))
 
-    return Image.fromarray(warped, "RGBA")
+    return canvas
