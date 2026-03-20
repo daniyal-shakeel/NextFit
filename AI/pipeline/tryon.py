@@ -44,7 +44,8 @@ class TryOnPipeline:
         """Create a mask covering only the seam/edge region around the clothing boundary."""
         mask_np = np.array(mask.convert("L"))
         dilated = np.array(mask.convert("L").filter(ImageFilter.MaxFilter(dilate_px * 2 + 1)))
-        eroded = np.array(mask.convert("L").filter(ImageFilter.MinFilter(max(dilate_px - 2, 3))))
+        erode_size = max(dilate_px - 2, 3) | 1  # must be odd
+        eroded = np.array(mask.convert("L").filter(ImageFilter.MinFilter(erode_size)))
         edge = np.where((dilated > 127) & (eroded < 128), 255, 0).astype(np.uint8)
         return Image.fromarray(edge, mode="L")
 
