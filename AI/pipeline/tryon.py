@@ -11,7 +11,7 @@ from pipeline.preprocessing.warping import warp_garment
 
 INFER_SIZE = 1024
 NUM_STEPS = 40
-STRENGTH = 1.0
+STRENGTH = 0.85
 IP_ADAPTER_SCALE = 0.6
 GUIDANCE_SCALE = 7.5
 FEATHER_RADIUS = 21
@@ -107,18 +107,25 @@ class TryOnPipeline:
         cloth_mask = generate_cloth_mask(person_sq, pose_data, category)
         print("[TryOn]   Cloth mask generated (with face protection)")
 
-        print("[TryOn] Step 4/5: Warping garment to body proportions...")
-        warped_garment = warp_garment(garment_sq, pose_data, (INFER_SIZE, INFER_SIZE))
-        garment_for_ip = warped_garment.convert("RGB")
-        print("[TryOn]   Garment warped")
+        print("[TryOn] Step 4/6: Warping garment to body proportions...")
+        warped_rgba = warp_garment(garment_sq, pose_data, (INFER_SIZE, INFER_SIZE))
+        warped_rgb = warped_rgba.convert("RGB")
+        warped_alpha = warped_rgba.split()[3]
+        print("[TryOn]   Garment warped and positioned")
 
-        print(f"[TryOn] Step 5/5: SDXL inpainting with IP-Adapter ({NUM_STEPS} steps)...")
+        print("[TryOn] Step 5/6: Compositing garment onto person...")
+        mask_l = cloth_mask.convert("L")
+        composite = person_sq.copy()
+        composite.paste(warped_rgb, mask=warped_alpha)
+        print("[TryOn]   Garment composited in mask region")
+
+        print(f"[TryOn] Step 6/6: SDXL inpainting with IP-Adapter ({NUM_STEPS} steps, strength={STRENGTH})...")
         raw_result = self.pipe(
             prompt="photorealistic person wearing shirt, natural fabric draping, realistic shadows, seamless fit, high resolution portrait",
             negative_prompt="white border, black border, floating garment, misaligned clothing, artifacts, blurry, distorted face, extra limbs",
-            image=person_sq,
-            mask_image=cloth_mask.convert("L"),
-            ip_adapter_image=garment_for_ip,
+            image=composite,
+            mask_image=mask_l,
+            ip_adapter_image=warped_rgb,
             num_inference_steps=NUM_STEPS,
             guidance_scale=GUIDANCE_SCALE,
             strength=STRENGTH,

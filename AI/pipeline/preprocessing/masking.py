@@ -14,8 +14,23 @@ R_WRIST = 16
 L_HIP = 23
 R_HIP = 24
 
-ARM_THICKNESS = 0.05
+ARM_THICKNESS = 0.07
 FACE_PAD = 0.05
+BODY_PAD_X = 0.08
+
+
+def _arm_strip(p0, p1, thickness):
+    """Build a quad strip along the arm segment with given thickness."""
+    dx = p1[0] - p0[0]
+    dy = p1[1] - p0[1]
+    length = max(np.hypot(dx, dy), 1)
+    nx, ny = -dy / length * thickness, dx / length * thickness
+    return np.array([
+        [p0[0] + nx, p0[1] + ny],
+        [p0[0] - nx, p0[1] - ny],
+        [p1[0] - nx, p1[1] - ny],
+        [p1[0] + nx, p1[1] + ny],
+    ], dtype=np.int32)
 
 
 def generate_cloth_mask(
@@ -45,48 +60,46 @@ def generate_cloth_mask(
         lw = px(L_WRIST)
         rw = px(R_WRIST)
 
-        pad_x = int(w * 0.10)
+        pad_x = int(w * BODY_PAD_X)
         pad_y = int(h * 0.02)
         neck_lift = int(h * 0.04)
         arm_w = int(w * ARM_THICKNESS)
 
         neck_mid_y = min(ls[1], rs[1]) - neck_lift
 
-        torso = np.array([
+        # Single connected polygon: left wrist → left arm → torso → right arm → right wrist → hips
+        body_poly = np.array([
+            # Left arm (outer edge going down)
             [ls[0] - pad_x, neck_mid_y],
-            [rs[0] + pad_x, neck_mid_y],
-            [rs[0] + pad_x, rs[1] - pad_y],
-            [rh[0] + pad_x, rh[1] + pad_y],
+            [ls[0] - pad_x, ls[1]],
+            [le[0] - arm_w, le[1]],
+            [lw[0] - arm_w, lw[1]],
+            # Left wrist bottom
+            [lw[0] + arm_w, lw[1]],
+            # Left arm (inner edge going up)
+            [le[0] + arm_w, le[1]],
+            [ls[0] + pad_x // 2, ls[1]],
+            # Left hip
             [lh[0] - pad_x, lh[1] + pad_y],
-            [ls[0] - pad_x, ls[1] - pad_y],
+            # Right hip
+            [rh[0] + pad_x, rh[1] + pad_y],
+            # Right shoulder inner
+            [rs[0] - pad_x // 2, rs[1]],
+            # Right arm (inner edge going down)
+            [re[0] - arm_w, re[1]],
+            [rw[0] - arm_w, rw[1]],
+            # Right wrist bottom
+            [rw[0] + arm_w, rw[1]],
+            # Right arm (outer edge going up)
+            [re[0] + arm_w, re[1]],
+            [rs[0] + pad_x, rs[1]],
+            [rs[0] + pad_x, neck_mid_y],
         ], dtype=np.int32)
-        cv2.fillPoly(mask, [torso], 255)
+        cv2.fillPoly(mask, [body_poly], 255)
 
-        for seg_start, seg_end in [(ls, le), (le, lw)]:
-            dx = seg_end[0] - seg_start[0]
-            dy = seg_end[1] - seg_start[1]
-            length = max(np.hypot(dx, dy), 1)
-            nx, ny = -dy / length * arm_w, dx / length * arm_w
-            strip = np.array([
-                [seg_start[0] + nx, seg_start[1] + ny],
-                [seg_start[0] - nx, seg_start[1] - ny],
-                [seg_end[0] - nx, seg_end[1] - ny],
-                [seg_end[0] + nx, seg_end[1] + ny],
-            ], dtype=np.int32)
-            cv2.fillPoly(mask, [strip], 255)
-
-        for seg_start, seg_end in [(rs, re), (re, rw)]:
-            dx = seg_end[0] - seg_start[0]
-            dy = seg_end[1] - seg_start[1]
-            length = max(np.hypot(dx, dy), 1)
-            nx, ny = -dy / length * arm_w, dx / length * arm_w
-            strip = np.array([
-                [seg_start[0] + nx, seg_start[1] + ny],
-                [seg_start[0] - nx, seg_start[1] - ny],
-                [seg_end[0] - nx, seg_end[1] - ny],
-                [seg_end[0] + nx, seg_end[1] + ny],
-            ], dtype=np.int32)
-            cv2.fillPoly(mask, [strip], 255)
+        # Fill any internal holes
+        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_kernel)
 
         mask = cv2.GaussianBlur(mask, (51, 51), 0)
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
