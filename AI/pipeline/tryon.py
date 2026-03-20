@@ -60,7 +60,7 @@ class TryOnPipeline:
         self.pipe.load_ip_adapter(
             "h94/IP-Adapter",
             subfolder="sdxl_models",
-            weight_name="ip-adapter_sdxl_vit-h.bin",
+            weight_name="ip-adapter_sdxl.bin",
             cache_dir=cache_dir,
         )
         self.pipe.set_ip_adapter_scale(IP_ADAPTER_SCALE)
