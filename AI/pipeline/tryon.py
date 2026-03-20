@@ -1,6 +1,7 @@
 import os
 import torch
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageFilter
 from diffusers import StableDiffusionInpaintPipeline
 
 from pipeline.preprocessing.pose import extract_pose
@@ -10,6 +11,9 @@ from pipeline.preprocessing.warping import warp_garment
 
 TARGET_SIZE = (768, 1024)
 INPAINT_SIZE = (512, 512)
+EDGE_DILATE_PX = 12
+BLEND_STEPS = 20
+BLEND_STRENGTH = 0.55
 
 
 class TryOnPipeline:
@@ -28,21 +32,21 @@ class TryOnPipeline:
             token=token,
         )
 
-        print("[TryOn] Loading IP-Adapter for garment conditioning...")
-        self.pipe.load_ip_adapter(
-            "h94/IP-Adapter",
-            subfolder="models",
-            weight_name="ip-adapter_sd15.bin",
-            cache_dir=cache_dir,
-        )
-        self.pipe.set_ip_adapter_scale(0.7)
-
         if self.device == "cuda":
             self.pipe.enable_model_cpu_offload()
             self.pipe.enable_attention_slicing()
             print("[TryOn] GPU optimizations enabled (cpu_offload + attention_slicing)")
 
         print("[TryOn] Pipeline ready")
+
+    @staticmethod
+    def _build_edge_mask(mask: Image.Image, dilate_px: int = EDGE_DILATE_PX) -> Image.Image:
+        """Create a mask covering only the seam/edge region around the clothing boundary."""
+        mask_np = np.array(mask.convert("L"))
+        dilated = np.array(mask.convert("L").filter(ImageFilter.MaxFilter(dilate_px * 2 + 1)))
+        eroded = np.array(mask.convert("L").filter(ImageFilter.MinFilter(max(dilate_px - 2, 3))))
+        edge = np.where((dilated > 127) & (eroded < 128), 255, 0).astype(np.uint8)
+        return Image.fromarray(edge, mode="L")
 
     def run(
         self,
@@ -55,46 +59,44 @@ class TryOnPipeline:
         person_resized = person_image.resize(self.target_size).convert("RGB")
         garment_resized = garment_image.resize(self.target_size).convert("RGB")
 
-        # Step 1: Pose extraction
-        print("[TryOn] Step 1/4: Extracting pose landmarks...")
+        print("[TryOn] Step 1/5: Extracting pose landmarks...")
         pose_data = extract_pose(person_resized)
         print(f"[TryOn]   Found {len(pose_data['landmarks'])} landmarks")
 
-        # Step 2: Human parsing
-        print("[TryOn] Step 2/4: Parsing human segmentation...")
-        parse_result = parse_human(person_resized)
+        print("[TryOn] Step 2/5: Parsing human segmentation...")
+        parse_human(person_resized)
         print("[TryOn]   Human parsing complete")
 
-        # Step 3: Cloth masking
-        print(f"[TryOn] Step 3/4: Generating cloth mask (category={category})...")
+        print(f"[TryOn] Step 3/5: Generating cloth mask (category={category})...")
         cloth_mask = generate_cloth_mask(person_resized, pose_data, category)
         print("[TryOn]   Cloth mask generated")
 
-        # Step 4: Garment warping
-        print("[TryOn] Step 4/4: Warping garment to body proportions...")
+        print("[TryOn] Step 4/5: Warping garment to body proportions...")
         warped_garment = warp_garment(garment_resized, pose_data, self.target_size)
         print("[TryOn]   Garment warped")
 
-        # Resize to inpaint model size
-        person_inpaint = person_resized.resize(INPAINT_SIZE)
-        mask_inpaint = cloth_mask.resize(INPAINT_SIZE)
-        garment_inpaint = warped_garment.resize(INPAINT_SIZE)
+        print("[TryOn] Step 5/5: Compositing & edge-blend inpainting...")
+        composite = person_resized.copy()
+        composite.paste(warped_garment, mask=cloth_mask.convert("L"))
 
-        # Run inpainting with IP-Adapter garment conditioning
-        print("[TryOn] Running inference (30 steps)...")
+        edge_mask = self._build_edge_mask(cloth_mask)
+
+        composite_sm = composite.resize(INPAINT_SIZE)
+        edge_mask_sm = edge_mask.resize(INPAINT_SIZE)
+
+        print(f"[TryOn] Running edge-blend inference ({BLEND_STEPS} steps, strength={BLEND_STRENGTH})...")
         result = self.pipe(
-            prompt="person wearing this exact garment, photorealistic, high quality, natural lighting, well-fitted clothing",
-            negative_prompt="blurry, distorted, deformed, low quality, watermark, wrong garment, bad anatomy",
-            image=person_inpaint,
-            mask_image=mask_inpaint,
-            ip_adapter_image=garment_inpaint,
-            num_inference_steps=30,
+            prompt="photorealistic, natural skin and fabric transition, seamless clothing fit, studio lighting",
+            negative_prompt="blurry, artifacts, seam line, stitching visible, distorted, bad anatomy",
+            image=composite_sm,
+            mask_image=edge_mask_sm,
+            num_inference_steps=BLEND_STEPS,
             guidance_scale=7.5,
-            height=512,
-            width=512,
+            strength=BLEND_STRENGTH,
+            height=INPAINT_SIZE[1],
+            width=INPAINT_SIZE[0],
         ).images[0]
 
-        # Scale back to target size
         result = result.resize(self.target_size, Image.LANCZOS)
 
         print("[TryOn] === Try-on complete ===")
