@@ -11,7 +11,7 @@ from pipeline.preprocessing.warping import warp_garment
 TARGET_SIZE = (768, 1024)
 NUM_STEPS = 40
 STRENGTH = 0.99
-IP_ADAPTER_SCALE = 0.7
+IP_ADAPTER_SCALE = 0.5
 GUIDANCE_SCALE = 7.5
 
 SDXL_MODEL = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
@@ -72,16 +72,22 @@ class TryOnPipeline:
         print("[TryOn]   Cloth mask generated")
 
         print("[TryOn] Step 4/5: Warping garment to body proportions...")
-        warped_garment = warp_garment(garment_resized, pose_data, self.target_size)
-        print("[TryOn]   Garment warped")
+        warped_rgba = warp_garment(garment_resized, pose_data, self.target_size)
+        print("[TryOn]   Garment warped (background removed)")
+
+        warped_rgb = warped_rgba.convert("RGB")
+        warped_alpha = warped_rgba.split()[3]
+
+        composite = person_resized.copy()
+        composite.paste(warped_rgb, mask=warped_alpha)
 
         print(f"[TryOn] Step 5/5: SDXL inpainting with IP-Adapter ({NUM_STEPS} steps)...")
         result = self.pipe(
-            prompt="person wearing this garment, photorealistic, high resolution, natural fit, studio lighting, well-fitted clothing",
-            negative_prompt="distorted, artifacts, blurry, wrong clothing, extra limbs, bad anatomy, low quality",
-            image=person_resized,
+            prompt="photorealistic person wearing shirt, natural fabric draping, realistic shadows, seamless fit, high resolution portrait",
+            negative_prompt="white background, black background, floating garment, misaligned clothing, artifacts, blurry, distorted face",
+            image=composite,
             mask_image=cloth_mask.convert("L"),
-            ip_adapter_image=warped_garment,
+            ip_adapter_image=warped_rgb,
             num_inference_steps=NUM_STEPS,
             guidance_scale=GUIDANCE_SCALE,
             strength=STRENGTH,
