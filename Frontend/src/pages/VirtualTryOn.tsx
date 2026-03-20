@@ -27,7 +27,7 @@ const DEV_SHIRT_PRODUCT: Product = {
   description: 'Hardcoded shirt for development',
   price: 0,
   category: 'shirts',
-  image: '/assets/dev-shirt.svg',
+  image: '/assets/dev-shirt.png',
   inStock: true,
   rating: 0,
   reviews: 0,

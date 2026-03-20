@@ -9,7 +9,7 @@ import type { Product } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Camera, Loader2, AlertCircle, Maximize2, Minimize2 } from 'lucide-react';
 
-const DEV_SHIRT_URL = '/assets/dev-shirt.svg';
+const DEV_SHIRT_URL = '/assets/dev-shirt.png';
 const CANVAS_WIDTH = 480;
 const CANVAS_HEIGHT = 360;
 
