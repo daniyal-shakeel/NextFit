@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Loader2, Upload, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { useTryOnApi } from '@/hooks/useTryOnApi';
 import {
@@ -54,7 +54,7 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
     setValidationOk(true);
   }, []);
 
-  const handleFile = (file: File) => {
+  const handleFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) return;
     const reader = new FileReader();
     reader.onload = () => {
@@ -63,7 +63,7 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
       void runValidation(dataUrl);
     };
     reader.readAsDataURL(file);
-  };
+  }, [runValidation]);
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -76,6 +76,22 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
     const file = e.dataTransfer.files?.[0];
     if (file) handleFile(file);
   };
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) handleFile(file);
+          break;
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [handleFile]);
 
   const handleTryOn = async () => {
     if (!personImage || !selectedProduct?.image || !validationOk) return;
@@ -127,7 +143,7 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
             ) : (
               <div className="flex flex-col items-center gap-2 text-muted-foreground">
                 <Upload className="h-10 w-10" />
-                <p className="text-sm">Drag & drop or click to upload your photo</p>
+                <p className="text-sm">Drag & drop, click, or paste (Ctrl+V) to upload your photo</p>
               </div>
             )}
           </div>

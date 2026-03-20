@@ -8,7 +8,7 @@ router.use(express.json({ limit: '25mb' }));
 
 const PERSON_MAX_BYTES = 10 * 1024 * 1024;
 const GARMENT_MAX_BYTES = 5 * 1024 * 1024;
-const AI_TIMEOUT_MS = 60_000;
+const AI_TIMEOUT_MS = 180_000;
 
 function stripDataUrlPart(s: string): string {
   const t = s.trim();
