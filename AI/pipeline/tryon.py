@@ -1,6 +1,7 @@
 import os
 import torch
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageFilter
 from diffusers import AutoPipelineForInpainting, AutoencoderKL
 
 from pipeline.preprocessing.pose import extract_pose
@@ -13,13 +14,13 @@ NUM_STEPS = 40
 STRENGTH = 1.0
 IP_ADAPTER_SCALE = 0.6
 GUIDANCE_SCALE = 7.5
+FEATHER_RADIUS = 21
 
 SDXL_MODEL = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
 VAE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
 
 
 def _center_crop_square(img: Image.Image, size: int) -> tuple[Image.Image, tuple[int, int, int, int]]:
-    """Center-crop to square then resize. Returns (cropped_image, crop_box)."""
     w, h = img.size
     short = min(w, h)
     left = (w - short) // 2
@@ -28,13 +29,22 @@ def _center_crop_square(img: Image.Image, size: int) -> tuple[Image.Image, tuple
     return img.crop(box).resize((size, size), Image.LANCZOS), box
 
 
-def _uncrop(result: Image.Image, original_size: tuple[int, int], crop_box: tuple[int, int, int, int]) -> Image.Image:
-    """Place the square result back into the original image dimensions."""
-    short = crop_box[2] - crop_box[0]
-    result_uncropped = result.resize((short, short), Image.LANCZOS)
-    canvas = Image.new("RGB", original_size)
-    canvas.paste(result_uncropped, (crop_box[0], crop_box[1]))
-    return canvas
+def _composite_with_mask(
+    original: Image.Image,
+    generated: Image.Image,
+    mask: Image.Image,
+    feather: int = FEATHER_RADIUS,
+) -> Image.Image:
+    """Blend generated result into original using feathered mask."""
+    mask_l = mask.convert("L")
+    if feather > 0:
+        k = feather | 1
+        mask_l = mask_l.filter(ImageFilter.GaussianBlur(k))
+    mask_np = np.array(mask_l, dtype=np.float32) / 255.0
+    orig_np = np.array(original, dtype=np.float32)
+    gen_np = np.array(generated, dtype=np.float32)
+    blended = orig_np * (1 - mask_np[..., None]) + gen_np * mask_np[..., None]
+    return Image.fromarray(blended.astype(np.uint8))
 
 
 class TryOnPipeline:
@@ -56,7 +66,7 @@ class TryOnPipeline:
             cache_dir=cache_dir, token=token,
         )
 
-        print("[TryOn] Loading IP-Adapter Plus (SDXL)...")
+        print("[TryOn] Loading IP-Adapter (SDXL)...")
         self.pipe.load_ip_adapter(
             "h94/IP-Adapter",
             subfolder="sdxl_models",
@@ -79,9 +89,10 @@ class TryOnPipeline:
         category: str = "upper_body",
     ) -> Image.Image:
         print("[TryOn] === Starting try-on ===")
-        orig_size = person_image.size
+        original = person_image.convert("RGB")
+        orig_w, orig_h = original.size
 
-        person_sq, crop_box = _center_crop_square(person_image.convert("RGB"), INFER_SIZE)
+        person_sq, crop_box = _center_crop_square(original, INFER_SIZE)
         garment_sq = garment_image.convert("RGB").resize((INFER_SIZE, INFER_SIZE), Image.LANCZOS)
 
         print("[TryOn] Step 1/5: Extracting pose landmarks...")
@@ -94,15 +105,15 @@ class TryOnPipeline:
 
         print(f"[TryOn] Step 3/5: Generating cloth mask (category={category})...")
         cloth_mask = generate_cloth_mask(person_sq, pose_data, category)
-        print("[TryOn]   Cloth mask generated")
+        print("[TryOn]   Cloth mask generated (with face protection)")
 
         print("[TryOn] Step 4/5: Warping garment to body proportions...")
         warped_garment = warp_garment(garment_sq, pose_data, (INFER_SIZE, INFER_SIZE))
         garment_for_ip = warped_garment.convert("RGB")
         print("[TryOn]   Garment warped")
 
-        print(f"[TryOn] Step 5/5: SDXL inpainting with IP-Adapter Plus ({NUM_STEPS} steps)...")
-        result = self.pipe(
+        print(f"[TryOn] Step 5/5: SDXL inpainting with IP-Adapter ({NUM_STEPS} steps)...")
+        raw_result = self.pipe(
             prompt="photorealistic person wearing shirt, natural fabric draping, realistic shadows, seamless fit, high resolution portrait",
             negative_prompt="white border, black border, floating garment, misaligned clothing, artifacts, blurry, distorted face, extra limbs",
             image=person_sq,
@@ -115,7 +126,14 @@ class TryOnPipeline:
             width=INFER_SIZE,
         ).images[0]
 
-        result = _uncrop(result, orig_size, crop_box)
+        print("[TryOn] Compositing: preserving face + background via mask blend...")
+        result_sq = _composite_with_mask(person_sq, raw_result, cloth_mask)
+
+        # Place back into original dimensions
+        short = crop_box[2] - crop_box[0]
+        result_cropped = result_sq.resize((short, short), Image.LANCZOS)
+        final = original.copy()
+        final.paste(result_cropped, (crop_box[0], crop_box[1]))
 
         print("[TryOn] === Try-on complete ===")
-        return result
+        return final

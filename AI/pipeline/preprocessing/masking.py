@@ -2,6 +2,9 @@ import cv2
 import numpy as np
 from PIL import Image
 
+NOSE = 0
+L_EYE = 2
+R_EYE = 5
 L_SHOULDER = 11
 R_SHOULDER = 12
 L_ELBOW = 13
@@ -12,6 +15,7 @@ L_HIP = 23
 R_HIP = 24
 
 ARM_THICKNESS = 0.05
+FACE_PAD = 0.05
 
 
 def generate_cloth_mask(
@@ -43,12 +47,11 @@ def generate_cloth_mask(
 
         pad_x = int(w * 0.10)
         pad_y = int(h * 0.02)
-        neck_lift = int(h * 0.10)
+        neck_lift = int(h * 0.04)
         arm_w = int(w * ARM_THICKNESS)
 
         neck_mid_y = min(ls[1], rs[1]) - neck_lift
 
-        # Torso polygon: neck → shoulders → hips
         torso = np.array([
             [ls[0] - pad_x, neck_mid_y],
             [rs[0] + pad_x, neck_mid_y],
@@ -59,7 +62,6 @@ def generate_cloth_mask(
         ], dtype=np.int32)
         cv2.fillPoly(mask, [torso], 255)
 
-        # Left arm: shoulder → elbow → wrist (thick strip)
         for seg_start, seg_end in [(ls, le), (le, lw)]:
             dx = seg_end[0] - seg_start[0]
             dy = seg_end[1] - seg_start[1]
@@ -73,7 +75,6 @@ def generate_cloth_mask(
             ], dtype=np.int32)
             cv2.fillPoly(mask, [strip], 255)
 
-        # Right arm: shoulder → elbow → wrist (thick strip)
         for seg_start, seg_end in [(rs, re), (re, rw)]:
             dx = seg_end[0] - seg_start[0]
             dy = seg_end[1] - seg_start[1]
@@ -89,6 +90,27 @@ def generate_cloth_mask(
 
         mask = cv2.GaussianBlur(mask, (51, 51), 0)
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+
+        # Face protection: carve out face region so it's never inpainted
+        nose = px(NOSE)
+        leye = px(L_EYE)
+        reye = px(R_EYE)
+        eye_dist = abs(reye[0] - leye[0])
+        face_cx = (leye[0] + reye[0]) // 2
+        face_cy = (leye[1] + reye[1]) // 2
+        face_r = int(eye_dist * 1.8)
+        face_bottom = nose[1] + int(h * FACE_PAD)
+        face_top = face_cy - face_r
+
+        face_protect = np.zeros_like(mask)
+        cv2.ellipse(
+            face_protect,
+            (face_cx, (face_top + face_bottom) // 2),
+            (face_r, (face_bottom - face_top) // 2),
+            0, 0, 360, 255, -1,
+        )
+        face_protect = cv2.GaussianBlur(face_protect, (31, 31), 0)
+        mask = np.where(face_protect > 127, 0, mask).astype(np.uint8)
 
     elif category == "lower_body":
         lh = px(L_HIP)
