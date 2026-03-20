@@ -11,7 +11,7 @@ R_WRIST = 16
 L_HIP = 23
 R_HIP = 24
 
-ARM_THICKNESS = 0.035
+ARM_THICKNESS = 0.05
 
 
 def generate_cloth_mask(
@@ -41,9 +41,9 @@ def generate_cloth_mask(
         lw = px(L_WRIST)
         rw = px(R_WRIST)
 
-        pad_x = int(w * 0.08)
+        pad_x = int(w * 0.10)
         pad_y = int(h * 0.02)
-        neck_lift = int(h * 0.04)
+        neck_lift = int(h * 0.10)
         arm_w = int(w * ARM_THICKNESS)
 
         neck_mid_y = min(ls[1], rs[1]) - neck_lift

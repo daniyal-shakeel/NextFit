@@ -7,7 +7,7 @@ app = modal.App("nextfit-ai-tryon")
 MODAL_GPU = os.getenv("MODAL_GPU", "L4")
 MODAL_CPU = float(os.getenv("MODAL_CPU", "4.0"))
 MODAL_MEMORY = int(os.getenv("MODAL_MEMORY", "16384"))
-MODAL_SCALEDOWN = int(os.getenv("MODAL_SCALEDOWN", "300"))
+MODAL_SCALEDOWN = int(os.getenv("MODAL_SCALEDOWN", "30"))
 MODEL_ID = os.getenv("MODEL_ID", "diffusers/stable-diffusion-xl-1.0-inpainting-0.1")
 
 image = (
@@ -37,7 +37,8 @@ image = (
         'python -c "'
         'from huggingface_hub import snapshot_download; '
         'snapshot_download(repo_id=\'diffusers/stable-diffusion-xl-1.0-inpainting-0.1\', cache_dir=\'/app/model_cache\'); '
-        'snapshot_download(repo_id=\'h94/IP-Adapter\', allow_patterns=[\'sdxl_models/ip-adapter_sdxl.bin\', \'sdxl_models/image_encoder/**\'], cache_dir=\'/app/model_cache\')'
+        'snapshot_download(repo_id=\'madebyollin/sdxl-vae-fp16-fix\', cache_dir=\'/app/model_cache\'); '
+        'snapshot_download(repo_id=\'h94/IP-Adapter\', allow_patterns=[\'sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors\', \'sdxl_models/image_encoder/**\'], cache_dir=\'/app/model_cache\')'
         '"',
     )
     .run_commands(
@@ -55,7 +56,7 @@ volume = modal.Volume.from_name("nextfit-models", create_if_missing=True)
     cpu=4.0,
     memory=16384,
     volumes={"/app/models": volume},
-    scaledown_window=300,
+    scaledown_window=30,
     secrets=[modal.Secret.from_name("huggingface-secret")],
 )
 class TryOnService:
