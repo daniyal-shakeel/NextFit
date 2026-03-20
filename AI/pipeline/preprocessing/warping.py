@@ -1,7 +1,15 @@
 import cv2
 import numpy as np
 from PIL import Image
-from scipy.ndimage import map_coordinates  # noqa: F401
+
+L_SHOULDER = 11
+R_SHOULDER = 12
+L_HIP = 23
+R_HIP = 24
+
+PAD_X_RATIO = 0.12
+PAD_Y_TOP = 0.03
+PAD_Y_BOT = 0.05
 
 
 def warp_garment(
@@ -9,35 +17,42 @@ def warp_garment(
     pose_data: dict,
     target_size: tuple = (768, 1024),
 ) -> Image.Image:
-    """
-    Warp garment to roughly align with person body proportions.
-    Uses affine transform based on shoulder landmarks.
-    """
     w = pose_data["image_width"]
     h = pose_data["image_height"]
     lms = pose_data["landmarks"]
 
-    ls_x = int(lms[11]["x"] * w)
-    ls_y = int(lms[11]["y"] * h)
-    rs_x = int(lms[12]["x"] * w)
-    rs_y = int(lms[12]["y"] * h)
+    def pt(idx):
+        return (lms[idx]["x"] * w, lms[idx]["y"] * h)
 
-    lh_y = int(lms[23]["y"] * h)
+    ls = pt(L_SHOULDER)
+    rs = pt(R_SHOULDER)
+    lh = pt(L_HIP)
+    rh = pt(R_HIP)
 
-    shoulder_width = abs(rs_x - ls_x)
-    torso_height = abs(lh_y - ls_y)
+    pad_x = abs(rs[0] - ls[0]) * PAD_X_RATIO
+    pad_y_top = abs(lh[1] - ls[1]) * PAD_Y_TOP
+    pad_y_bot = abs(lh[1] - ls[1]) * PAD_Y_BOT
 
-    garment_array = np.array(garment_image.convert("RGBA"))
+    # Destination corners on the person: TL, TR, BR, BL
+    dst = np.array([
+        [ls[0] - pad_x, min(ls[1], rs[1]) - pad_y_top],
+        [rs[0] + pad_x, min(ls[1], rs[1]) - pad_y_top],
+        [rh[0] + pad_x, max(lh[1], rh[1]) + pad_y_bot],
+        [lh[0] - pad_x, max(lh[1], rh[1]) + pad_y_bot],
+    ], dtype=np.float32)
 
-    scale_x = (shoulder_width * 1.4) / garment_image.width
-    scale_y = (torso_height * 1.3) / garment_image.height
+    gw, gh = garment_image.size
+    src = np.array([
+        [0, 0],
+        [gw, 0],
+        [gw, gh],
+        [0, gh],
+    ], dtype=np.float32)
 
-    new_w = int(garment_image.width * scale_x)
-    new_h = int(garment_image.height * scale_y)
+    M = cv2.getPerspectiveTransform(src, dst)
 
-    warped = cv2.resize(garment_array, (new_w, new_h))
-    warped_pil = Image.fromarray(warped).convert("RGB")
+    garment_arr = np.array(garment_image.convert("RGB"))
+    tw, th = target_size
+    warped = cv2.warpPerspective(garment_arr, M, (tw, th), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
 
-    warped_pil = warped_pil.resize(target_size, Image.LANCZOS)
-
-    return warped_pil
+    return Image.fromarray(warped).convert("RGB")
