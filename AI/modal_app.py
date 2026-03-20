@@ -31,6 +31,7 @@ image = (
         "scipy==1.13.1",
         "mediapipe==0.10.18",
         "controlnet-aux==0.0.9",
+        "invisible-watermark>=0.2.0",
     )
     .run_commands(
         'python -c "'
