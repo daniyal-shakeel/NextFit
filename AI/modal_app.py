@@ -32,13 +32,13 @@ image = (
         "mediapipe==0.10.18",
         "controlnet-aux==0.0.9",
         "invisible-watermark>=0.2.0",
+        "rembg==2.0.59",
     )
     .run_commands(
         'python -c "'
         'from huggingface_hub import snapshot_download; '
         'snapshot_download(repo_id=\'diffusers/stable-diffusion-xl-1.0-inpainting-0.1\', cache_dir=\'/app/model_cache\'); '
-        'snapshot_download(repo_id=\'madebyollin/sdxl-vae-fp16-fix\', cache_dir=\'/app/model_cache\'); '
-        'snapshot_download(repo_id=\'h94/IP-Adapter\', allow_patterns=[\'sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors\', \'sdxl_models/image_encoder/**\'], cache_dir=\'/app/model_cache\')'
+        'snapshot_download(repo_id=\'h94/IP-Adapter\', allow_patterns=[\'sdxl_models/ip-adapter_sdxl.bin\', \'sdxl_models/image_encoder/**\'], cache_dir=\'/app/model_cache\')'
         '"',
     )
     .run_commands(

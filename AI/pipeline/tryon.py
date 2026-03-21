@@ -1,7 +1,7 @@
 import os
 import torch
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageEnhance
 from diffusers import AutoPipelineForInpainting, AutoencoderKL
 
 from pipeline.preprocessing.pose import extract_pose
@@ -15,17 +15,74 @@ STRENGTH = 0.85
 IP_ADAPTER_SCALE = 0.6
 GUIDANCE_SCALE = 7.5
 FEATHER_RADIUS = 21
+CROP_PAD = 0.15
 
 SDXL_MODEL = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
 VAE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
 
+NOSE = 0
+L_EYE = 2
+R_EYE = 5
+L_SHOULDER = 11
+R_SHOULDER = 12
+L_ELBOW = 13
+R_ELBOW = 14
+L_WRIST = 15
+R_WRIST = 16
+L_HIP = 23
+R_HIP = 24
 
-def _center_crop_square(img: Image.Image, size: int) -> tuple[Image.Image, tuple[int, int, int, int]]:
+
+def _pose_aware_crop(
+    img: Image.Image,
+    pose_data: dict,
+    size: int,
+) -> tuple[Image.Image, tuple[int, int, int, int]]:
+    """Crop around the detected person using pose landmarks, then resize."""
     w, h = img.size
-    short = min(w, h)
-    left = (w - short) // 2
-    top = (h - short) // 2
-    box = (left, top, left + short, top + short)
+    lms = pose_data["landmarks"]
+
+    x_indices = [L_SHOULDER, R_SHOULDER, L_ELBOW, R_ELBOW, L_WRIST, R_WRIST]
+    y_top_indices = [NOSE, L_EYE, R_EYE]
+    y_bot_indices = [L_HIP, R_HIP]
+
+    xs = [lms[i]["x"] * w for i in x_indices if lms[i]["visibility"] > 0.3]
+    ys_top = [lms[i]["y"] * h for i in y_top_indices if lms[i]["visibility"] > 0.3]
+    ys_bot = [lms[i]["y"] * h for i in y_bot_indices if lms[i]["visibility"] > 0.3]
+
+    if not xs or not ys_top or not ys_bot:
+        short = min(w, h)
+        left = (w - short) // 2
+        top = (h - short) // 2
+        box = (left, top, left + short, top + short)
+        return img.crop(box).resize((size, size), Image.LANCZOS), box
+
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys_top), max(ys_bot)
+
+    pad_x = (x_max - x_min) * CROP_PAD
+    pad_y = (y_max - y_min) * CROP_PAD
+
+    x1 = max(0, int(x_min - pad_x))
+    y1 = max(0, int(y_min - pad_y))
+    x2 = min(w, int(x_max + pad_x))
+    y2 = min(h, int(y_max + pad_y))
+
+    bw, bh = x2 - x1, y2 - y1
+    side = max(bw, bh)
+    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+
+    sq_x1 = max(0, cx - side // 2)
+    sq_y1 = max(0, cy - side // 2)
+    sq_x2 = min(w, sq_x1 + side)
+    sq_y2 = min(h, sq_y1 + side)
+
+    if sq_x2 - sq_x1 < side:
+        sq_x1 = max(0, sq_x2 - side)
+    if sq_y2 - sq_y1 < side:
+        sq_y1 = max(0, sq_y2 - side)
+
+    box = (sq_x1, sq_y1, sq_x2, sq_y2)
     return img.crop(box).resize((size, size), Image.LANCZOS), box
 
 
@@ -45,6 +102,31 @@ def _composite_with_mask(
     gen_np = np.array(generated, dtype=np.float32)
     blended = orig_np * (1 - mask_np[..., None]) + gen_np * mask_np[..., None]
     return Image.fromarray(blended.astype(np.uint8))
+
+
+def _post_process(
+    result: Image.Image,
+    mask: Image.Image,
+) -> Image.Image:
+    """Sharpen, boost contrast, and smooth seam edges."""
+    import cv2 as cv
+
+    sharpened = result.filter(
+        ImageFilter.UnsharpMask(radius=1, percent=120, threshold=3)
+    )
+
+    enhanced = ImageEnhance.Contrast(sharpened).enhance(1.05)
+
+    mask_l = np.array(mask.convert("L"))
+    dilated = cv.dilate(mask_l, np.ones((5, 5), np.uint8), iterations=1)
+    eroded = cv.erode(mask_l, np.ones((5, 5), np.uint8), iterations=1)
+    edge = ((dilated > 127) & (eroded < 128)).astype(np.uint8) * 255
+    edge_blur = cv.GaussianBlur(edge, (7, 7), 0).astype(np.float32) / 255.0
+
+    arr = np.array(enhanced, dtype=np.float32)
+    blurred = cv.GaussianBlur(arr, (3, 3), 0)
+    out = arr * (1 - edge_blur[..., None]) + blurred * edge_blur[..., None]
+    return Image.fromarray(out.astype(np.uint8))
 
 
 class TryOnPipeline:
@@ -92,34 +174,35 @@ class TryOnPipeline:
         original = person_image.convert("RGB")
         orig_w, orig_h = original.size
 
-        person_sq, crop_box = _center_crop_square(original, INFER_SIZE)
+        print("[TryOn] Step 1/7: Extracting pose for smart crop...")
+        pre_pose = extract_pose(original)
+        person_sq, crop_box = _pose_aware_crop(original, pre_pose, INFER_SIZE)
         garment_sq = garment_image.convert("RGB").resize((INFER_SIZE, INFER_SIZE), Image.LANCZOS)
+        print(f"[TryOn]   Smart crop box: {crop_box}")
 
-        print("[TryOn] Step 1/5: Extracting pose landmarks...")
+        print("[TryOn] Step 2/7: Extracting pose on cropped image...")
         pose_data = extract_pose(person_sq)
         print(f"[TryOn]   Found {len(pose_data['landmarks'])} landmarks")
 
-        print("[TryOn] Step 2/5: Parsing human segmentation...")
+        print("[TryOn] Step 3/7: Parsing human segmentation...")
         parse_human(person_sq)
         print("[TryOn]   Human parsing complete")
 
-        print(f"[TryOn] Step 3/5: Generating cloth mask (category={category})...")
+        print(f"[TryOn] Step 4/7: Generating cloth mask (category={category})...")
         cloth_mask = generate_cloth_mask(person_sq, pose_data, category)
         print("[TryOn]   Cloth mask generated (with face protection)")
 
-        print("[TryOn] Step 4/6: Warping garment to body proportions...")
+        print("[TryOn] Step 5/7: Warping garment (rembg + resize)...")
         warped_rgba = warp_garment(garment_sq, pose_data, (INFER_SIZE, INFER_SIZE))
         warped_rgb = warped_rgba.convert("RGB")
         warped_alpha = warped_rgba.split()[3]
         print("[TryOn]   Garment warped and positioned")
 
-        print("[TryOn] Step 5/6: Compositing garment onto person...")
+        print("[TryOn] Step 6/7: Compositing garment + SDXL inpainting...")
         mask_l = cloth_mask.convert("L")
         composite = person_sq.copy()
         composite.paste(warped_rgb, mask=warped_alpha)
-        print("[TryOn]   Garment composited in mask region")
 
-        print(f"[TryOn] Step 6/6: SDXL inpainting with IP-Adapter ({NUM_STEPS} steps, strength={STRENGTH})...")
         raw_result = self.pipe(
             prompt="photorealistic person wearing shirt, natural fabric draping, realistic shadows, seamless fit, high resolution portrait",
             negative_prompt="white border, black border, floating garment, misaligned clothing, artifacts, blurry, distorted face, extra limbs",
@@ -133,12 +216,13 @@ class TryOnPipeline:
             width=INFER_SIZE,
         ).images[0]
 
-        print("[TryOn] Compositing: preserving face + background via mask blend...")
+        print("[TryOn] Step 7/7: Compositing + post-processing...")
         result_sq = _composite_with_mask(person_sq, raw_result, cloth_mask)
+        result_sq = _post_process(result_sq, cloth_mask)
 
-        # Place back into original dimensions
-        short = crop_box[2] - crop_box[0]
-        result_cropped = result_sq.resize((short, short), Image.LANCZOS)
+        crop_w = crop_box[2] - crop_box[0]
+        crop_h = crop_box[3] - crop_box[1]
+        result_cropped = result_sq.resize((crop_w, crop_h), Image.LANCZOS)
         final = original.copy()
         final.paste(result_cropped, (crop_box[0], crop_box[1]))
 
