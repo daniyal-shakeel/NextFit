@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Loader2, Upload, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Loader2, Upload, CheckCircle2, XCircle, AlertTriangle, Maximize2 } from 'lucide-react';
 import { useTryOnApi } from '@/hooks/useTryOnApi';
 import {
   getImageAverageBrightness,
@@ -7,6 +7,32 @@ import {
 } from '@/lib/personTryOnValidation';
 import type { Product } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import PhotoGuidancePanel from './PhotoGuidancePanel';
+
+const SERVER_SIZE = 1024;
+const MIN_SIZE = 512;
+
+function resizeImageDataUrl(
+  dataUrl: string,
+  targetW: number,
+  targetH: number,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Canvas not supported'));
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = dataUrl;
+  });
+}
 
 interface Props {
   selectedProduct: Product | null;
@@ -14,10 +40,14 @@ interface Props {
 
 export default function PhotoTryOn({ selectedProduct }: Props) {
   const [personImage, setPersonImage] = useState<string | null>(null);
+  const [imageDims, setImageDims] = useState<{ w: number; h: number } | null>(null);
+  const [needsResize, setNeedsResize] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationOk, setValidationOk] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [lightingWarning, setLightingWarning] = useState<string | null>(null);
+  const [sizeWarning, setSizeWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { tryOn, isLoading, resultImage, error, processingTime, reset } =
     useTryOnApi();
@@ -54,16 +84,57 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
     setValidationOk(true);
   }, []);
 
+  const acceptImage = useCallback(
+    (dataUrl: string, w: number, h: number) => {
+      setPersonImage(dataUrl);
+      setImageDims({ w, h });
+      setSizeWarning(null);
+      setNeedsResize(false);
+
+      const tooSmall = w < MIN_SIZE || h < MIN_SIZE;
+      const belowOptimal = w < SERVER_SIZE || h < SERVER_SIZE;
+
+      if (tooSmall) {
+        setNeedsResize(true);
+        setSizeWarning(
+          `Image is ${w}\u00d7${h}px \u2014 below the ${MIN_SIZE}px minimum. Resize to get usable results.`
+        );
+      } else if (belowOptimal) {
+        setNeedsResize(true);
+        setSizeWarning(
+          `Image is ${w}\u00d7${h}px. Resize to ${SERVER_SIZE}\u00d7${SERVER_SIZE} for best results.`
+        );
+      }
+
+      void runValidation(dataUrl);
+    },
+    [runValidation],
+  );
+
   const handleFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) return;
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      setPersonImage(dataUrl);
-      void runValidation(dataUrl);
+      const img = new window.Image();
+      img.onload = () => acceptImage(dataUrl, img.width, img.height);
+      img.src = dataUrl;
     };
     reader.readAsDataURL(file);
-  }, [runValidation]);
+  }, [acceptImage]);
+
+  const handleResize = useCallback(async () => {
+    if (!personImage) return;
+    setIsResizing(true);
+    try {
+      const resized = await resizeImageDataUrl(personImage, SERVER_SIZE, SERVER_SIZE);
+      acceptImage(resized, SERVER_SIZE, SERVER_SIZE);
+    } catch {
+      setValidationError('Failed to resize image.');
+    } finally {
+      setIsResizing(false);
+    }
+  }, [personImage, acceptImage]);
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -113,15 +184,19 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
   const handleReset = () => {
     reset();
     setPersonImage(null);
+    setImageDims(null);
+    setNeedsResize(false);
     setValidationOk(false);
     setValidationError(null);
     setLightingWarning(null);
+    setSizeWarning(null);
   };
 
   return (
     <div className="flex flex-col gap-4 w-full">
       {!resultImage && (
         <>
+          <PhotoGuidancePanel />
           <div
             role="button"
             tabIndex={0}
@@ -160,6 +235,38 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{lightingWarning}</span>
             </div>
+          )}
+
+          {sizeWarning && (
+            <div className="flex items-start justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{sizeWarning}</span>
+              </div>
+              {needsResize && personImage && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 gap-1.5 border-amber-500/40 text-amber-800 hover:bg-amber-500/20 dark:text-amber-200"
+                  onClick={handleResize}
+                  disabled={isResizing}
+                >
+                  {isResizing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  )}
+                  Resize to {SERVER_SIZE}×{SERVER_SIZE}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {personImage && imageDims && (
+            <p className="text-xs text-muted-foreground">
+              Current size: {imageDims.w}×{imageDims.h}px
+              {imageDims.w >= SERVER_SIZE && imageDims.h >= SERVER_SIZE && ' ✓'}
+            </p>
           )}
 
           {personImage && (
