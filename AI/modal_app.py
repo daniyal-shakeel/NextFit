@@ -29,6 +29,7 @@ image = (
         "onnxruntime==1.17.1",
         "scipy==1.13.1",
         "basicsr",
+        "gradio==4.7.1",
     )
     .run_commands(
         "git clone https://github.com/yisol/IDM-VTON.git /app/IDM-VTON",
@@ -56,7 +57,7 @@ class TryOnService:
         hf_token = os.environ.get("HF_TOKEN")
 
         idm_dir = "/app/models/IDM-VTON"
-        if not os.path.exists(os.path.join(idm_dir, "config.json")):
+        if not os.path.exists("/app/models/IDM-VTON/unet"):
             print("Downloading IDM-VTON weights...")
             snapshot_download(
                 repo_id="yisol/IDM-VTON",
@@ -70,26 +71,33 @@ class TryOnService:
 
         os.makedirs("/app/IDM-VTON/ckpt/humanparsing", exist_ok=True)
 
-        atr_path = hf_hub_download(
-            repo_id="levihsu/OOTDiffusion",
-            filename="checkpoints/humanparsing/parsing_atr.onnx",
-            token=hf_token,
-        )
-        shutil.copy(atr_path, "/app/IDM-VTON/ckpt/humanparsing/parsing_atr.onnx")
+        atr_dst = "/app/IDM-VTON/ckpt/humanparsing/parsing_atr.onnx"
+        lip_dst = "/app/IDM-VTON/ckpt/humanparsing/parsing_lip.onnx"
 
-        lip_path = hf_hub_download(
-            repo_id="levihsu/OOTDiffusion",
-            filename="checkpoints/humanparsing/parsing_lip.onnx",
-            token=hf_token,
-        )
-        shutil.copy(lip_path, "/app/IDM-VTON/ckpt/humanparsing/parsing_lip.onnx")
-
-        print("Human parsing models copied to ckpt folder")
+        if not os.path.exists(atr_dst):
+            print("Downloading human parsing models...")
+            atr_path = hf_hub_download(
+                repo_id="levihsu/OOTDiffusion",
+                filename="checkpoints/humanparsing/parsing_atr.onnx",
+                token=hf_token,
+            )
+            shutil.copy(atr_path, atr_dst)
+            lip_path = hf_hub_download(
+                repo_id="levihsu/OOTDiffusion",
+                filename="checkpoints/humanparsing/parsing_lip.onnx",
+                token=hf_token,
+            )
+            shutil.copy(lip_path, lip_dst)
+            print("Human parsing models copied")
+        else:
+            print("Human parsing models already cached")
 
         ckpt_idm = "/app/IDM-VTON/ckpt/idm_vton"
         if not os.path.exists(ckpt_idm):
-            os.symlink(idm_dir, ckpt_idm)
-            print(f"Symlinked {idm_dir} → {ckpt_idm}")
+            os.symlink("/app/models/IDM-VTON", ckpt_idm)
+            print("Symlinked IDM-VTON weights")
+        else:
+            print("Symlink already exists")
 
         print("Loading IDM-VTON pipeline...")
         sys.path.insert(0, "/app/IDM-VTON")
