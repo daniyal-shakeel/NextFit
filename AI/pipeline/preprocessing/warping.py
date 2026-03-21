@@ -1,45 +1,124 @@
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageFilter
 from rembg import remove as rembg_remove
 
-L_SHOULDER = 11
-R_SHOULDER = 12
-L_HIP = 23
+BODY_ZONE_RATIO = 0.60
+SLEEVE_ZONE_RATIO = 0.20
+BODY_SCALE_W = 1.20
+BODY_SCALE_H = 1.10
+SEAM_BLUR_RADIUS = 5
+DARK_THRESH = 50
+LIGHT_THRESH = 210
+MIN_OPAQUE_RATIO = 0.40
 
-SCALE_W = 1.5
-SCALE_H = 1.3
-OFFSET_X = 0.10
-OFFSET_Y = 0.05
+
+def _fallback_remove_bg(rgba: Image.Image) -> Image.Image:
+    """Threshold-based background removal when rembg over-removes."""
+    arr = np.array(rgba)
+    rgb = arr[:, :, :3]
+    h, w = rgb.shape[:2]
+    s = min(10, h, w)
+    corners = np.concatenate([
+        rgb[:s, :s].reshape(-1, 3),
+        rgb[:s, w - s:].reshape(-1, 3),
+        rgb[h - s:, :s].reshape(-1, 3),
+        rgb[h - s:, w - s:].reshape(-1, 3),
+    ]).astype(np.float32)
+    brightness = corners.mean()
+
+    alpha = arr[:, :, 3].copy()
+    if brightness < 80:
+        bg = (rgb[:, :, 0] < DARK_THRESH) & (rgb[:, :, 1] < DARK_THRESH) & (rgb[:, :, 2] < DARK_THRESH)
+        alpha[bg] = 0
+    else:
+        bg = (rgb[:, :, 0] > LIGHT_THRESH) & (rgb[:, :, 1] > LIGHT_THRESH) & (rgb[:, :, 2] > LIGHT_THRESH)
+        alpha[bg] = 0
+
+    arr[:, :, 3] = alpha
+    return Image.fromarray(arr, "RGBA")
+
+
+def _remove_background(garment: Image.Image) -> Image.Image:
+    """Remove background with rembg; fall back to threshold if over-removed."""
+    rgba = garment.convert("RGBA")
+    result = rembg_remove(rgba)
+    arr = np.array(result)
+    opaque = (arr[:, :, 3] > 127).sum()
+    total = arr.shape[0] * arr.shape[1]
+    if opaque / total < MIN_OPAQUE_RATIO:
+        return _fallback_remove_bg(garment.convert("RGBA"))
+    return result
+
+
+def _blur_seam(canvas_arr: np.ndarray, x: int, width: int = 10) -> np.ndarray:
+    """Apply a vertical Gaussian blur strip at column x for seamless stitching."""
+    h, w_img = canvas_arr.shape[:2]
+    x0 = max(0, x - width // 2)
+    x1 = min(w_img, x + width // 2)
+    if x1 <= x0:
+        return canvas_arr
+    strip = Image.fromarray(canvas_arr[:, x0:x1])
+    blurred = strip.filter(ImageFilter.GaussianBlur(SEAM_BLUR_RADIUS))
+    canvas_arr[:, x0:x1] = np.array(blurred)
+    return canvas_arr
 
 
 def warp_garment(
     garment_image: Image.Image,
     pose_data: dict,
+    measurements: dict,
     target_size: tuple = (768, 1024),
 ) -> Image.Image:
-    w = pose_data["image_width"]
-    h = pose_data["image_height"]
-    lms = pose_data["landmarks"]
+    nobg = _remove_background(garment_image)
 
-    ls_x = lms[L_SHOULDER]["x"] * w
-    ls_y = lms[L_SHOULDER]["y"] * h
-    rs_x = lms[R_SHOULDER]["x"] * w
-    rs_y = lms[R_SHOULDER]["y"] * h
-    lh_y = lms[L_HIP]["y"] * h
+    gw, gh = nobg.size
+    body_x0 = int(gw * SLEEVE_ZONE_RATIO)
+    body_x1 = int(gw * (SLEEVE_ZONE_RATIO + BODY_ZONE_RATIO))
 
-    shoulder_w = abs(rs_x - ls_x)
-    torso_h = abs(lh_y - min(ls_y, rs_y))
+    left_sleeve = nobg.crop((0, 0, body_x0, gh))
+    body_zone = nobg.crop((body_x0, 0, body_x1, gh))
+    right_sleeve = nobg.crop((body_x1, 0, gw, gh))
 
-    gw = max(int(shoulder_w * SCALE_W), 1)
-    gh = max(int(torso_h * SCALE_H), 1)
+    sw = measurements["shoulder_width"]
+    th = measurements["torso_height"]
+    aw = measurements["arm_width"]
+    la_len = measurements["left_arm_length"]
+    ra_len = measurements["right_arm_length"]
 
-    garment_nobg = rembg_remove(garment_image.convert("RGBA"))
-    garment_resized = garment_nobg.resize((gw, gh), Image.LANCZOS)
+    body_w = max(int(sw * BODY_SCALE_W), 1)
+    body_h = max(int(th * BODY_SCALE_H), 1)
+    body_resized = body_zone.resize((body_w, body_h), Image.LANCZOS)
 
-    paste_x = int(min(ls_x, rs_x) - gw * OFFSET_X)
-    paste_y = int(min(ls_y, rs_y) - gh * OFFSET_Y)
+    ls_w = max(int(aw), 1)
+    ls_h = max(int(la_len), 1)
+    ls_resized = left_sleeve.resize((ls_w, ls_h), Image.LANCZOS)
 
-    tw, th = target_size
-    canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
-    canvas.paste(garment_resized, (paste_x, paste_y), garment_resized)
+    rs_w = max(int(aw), 1)
+    rs_h = max(int(ra_len), 1)
+    rs_resized = right_sleeve.resize((rs_w, rs_h), Image.LANCZOS)
 
-    return canvas
+    neck_y = measurements["neck_y"]
+    chest_cx = measurements["chest_center_x"]
+    ls_pos = measurements["left_shoulder"]
+    rs_pos = measurements["right_shoulder"]
+
+    tw, tht = target_size
+    canvas = Image.new("RGBA", (tw, tht), (0, 0, 0, 0))
+
+    body_x = int(chest_cx - body_w / 2)
+    body_y = int(neck_y)
+    canvas.paste(body_resized, (body_x, body_y), body_resized)
+
+    lsl_x = int(ls_pos[0] - ls_w)
+    lsl_y = int(ls_pos[1])
+    canvas.paste(ls_resized, (lsl_x, lsl_y), ls_resized)
+
+    rsl_x = int(rs_pos[0])
+    rsl_y = int(rs_pos[1])
+    canvas.paste(rs_resized, (rsl_x, rsl_y), rs_resized)
+
+    arr = np.array(canvas)
+    arr = _blur_seam(arr, body_x, 10)
+    arr = _blur_seam(arr, body_x + body_w, 10)
+
+    return Image.fromarray(arr, "RGBA")

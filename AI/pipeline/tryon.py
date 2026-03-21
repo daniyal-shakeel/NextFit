@@ -6,13 +6,14 @@ from diffusers import AutoPipelineForInpainting, AutoencoderKL
 
 from pipeline.preprocessing.pose import extract_pose
 from pipeline.preprocessing.parsing import parse_human
+from pipeline.preprocessing.measurements import extract_measurements
 from pipeline.preprocessing.masking import generate_cloth_mask
 from pipeline.preprocessing.warping import warp_garment
 
 INFER_SIZE = 1024
 NUM_STEPS = 40
-STRENGTH = 0.85
-IP_ADAPTER_SCALE = 0.6
+STRENGTH = 0.75
+IP_ADAPTER_SCALE = 0.5
 GUIDANCE_SCALE = 7.5
 FEATHER_RADIUS = 21
 CROP_PAD = 0.15
@@ -104,18 +105,14 @@ def _composite_with_mask(
     return Image.fromarray(blended.astype(np.uint8))
 
 
-def _post_process(
-    result: Image.Image,
-    mask: Image.Image,
-) -> Image.Image:
+def _post_process(result: Image.Image, mask: Image.Image) -> Image.Image:
     """Sharpen, boost contrast, and smooth seam edges."""
     import cv2 as cv
 
     sharpened = result.filter(
-        ImageFilter.UnsharpMask(radius=1, percent=120, threshold=3)
+        ImageFilter.UnsharpMask(radius=1.5, percent=130, threshold=3)
     )
-
-    enhanced = ImageEnhance.Contrast(sharpened).enhance(1.05)
+    enhanced = ImageEnhance.Contrast(sharpened).enhance(1.08)
 
     mask_l = np.array(mask.convert("L"))
     dilated = cv.dilate(mask_l, np.ones((5, 5), np.uint8), iterations=1)
@@ -172,33 +169,45 @@ class TryOnPipeline:
     ) -> dict:
         print("[TryOn] === Starting try-on ===")
         original = person_image.convert("RGB")
-        orig_w, orig_h = original.size
 
-        print("[TryOn] Step 1/7: Extracting pose for smart crop...")
+        print("[TryOn] Step 1/8: Extracting pose for smart crop...")
         pre_pose = extract_pose(original)
         person_sq, crop_box = _pose_aware_crop(original, pre_pose, INFER_SIZE)
-        garment_sq = garment_image.convert("RGB").resize((INFER_SIZE, INFER_SIZE), Image.LANCZOS)
+        garment_sq = garment_image.convert("RGB").resize(
+            (INFER_SIZE, INFER_SIZE), Image.LANCZOS,
+        )
         print(f"[TryOn]   Smart crop box: {crop_box}")
 
-        print("[TryOn] Step 2/7: Extracting pose on cropped image...")
+        print("[TryOn] Step 2/8: Extracting pose on cropped image...")
         pose_data = extract_pose(person_sq)
         print(f"[TryOn]   Found {len(pose_data['landmarks'])} landmarks")
 
-        print("[TryOn] Step 3/7: Parsing human segmentation...")
+        print("[TryOn] Step 3/8: Extracting body measurements...")
+        measurements = extract_measurements(pose_data)
+        print(
+            f"[TryOn]   shoulder={measurements['shoulder_width']:.0f}px  "
+            f"torso={measurements['torso_height']:.0f}px  "
+            f"L-arm={measurements['left_arm_length']:.0f}px  "
+            f"R-arm={measurements['right_arm_length']:.0f}px"
+        )
+
+        print("[TryOn] Step 4/8: Parsing human segmentation...")
         parse_human(person_sq)
         print("[TryOn]   Human parsing complete")
 
-        print(f"[TryOn] Step 4/7: Generating cloth mask (category={category})...")
-        cloth_mask = generate_cloth_mask(person_sq, pose_data, category)
+        print(f"[TryOn] Step 5/8: Generating cloth mask (category={category})...")
+        cloth_mask = generate_cloth_mask(person_sq, pose_data, measurements, category)
         print("[TryOn]   Cloth mask generated (with face protection)")
 
-        print("[TryOn] Step 5/7: Warping garment (rembg + resize)...")
-        warped_rgba = warp_garment(garment_sq, pose_data, (INFER_SIZE, INFER_SIZE))
+        print("[TryOn] Step 6/8: Warping garment (rembg + zone split)...")
+        warped_rgba = warp_garment(
+            garment_sq, pose_data, measurements, (INFER_SIZE, INFER_SIZE),
+        )
         warped_rgb = warped_rgba.convert("RGB")
         warped_alpha = warped_rgba.split()[3]
         print("[TryOn]   Garment warped and positioned")
 
-        print("[TryOn] Step 6/7: Compositing garment + SDXL inpainting...")
+        print("[TryOn] Step 7/8: Compositing garment + SDXL inpainting...")
         mask_l = cloth_mask.convert("L")
         composite = person_sq.copy()
         composite.paste(warped_rgb, mask=warped_alpha)
@@ -218,7 +227,7 @@ class TryOnPipeline:
             width=INFER_SIZE,
         ).images[0]
 
-        print("[TryOn] Step 7/7: Compositing + post-processing...")
+        print("[TryOn] Step 8/8: Compositing + post-processing...")
         result_sq = _composite_with_mask(person_sq, raw_result, cloth_mask)
         result_sq = _post_process(result_sq, cloth_mask)
 
