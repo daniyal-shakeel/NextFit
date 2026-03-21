@@ -68,35 +68,23 @@ class TryOnService:
         else:
             print("IDM-VTON weights already cached")
 
-        parsing_dir = "/app/models/checkpoints/humanparsing"
-        if not os.path.exists(os.path.join(parsing_dir, "parsing_atr.onnx")):
-            print("Downloading human parsing models...")
-            hf_hub_download(
-                repo_id="levihsu/OOTDiffusion",
-                filename="checkpoints/humanparsing/parsing_atr.onnx",
-                local_dir="/app/models",
-            )
-            hf_hub_download(
-                repo_id="levihsu/OOTDiffusion",
-                filename="checkpoints/humanparsing/parsing_lip.onnx",
-                local_dir="/app/models",
-            )
-            volume.commit()
-            print("Human parsing models downloaded")
-        else:
-            print("Human parsing models already cached")
+        os.makedirs("/app/IDM-VTON/ckpt/humanparsing", exist_ok=True)
 
-        idm_parsing = "/app/IDM-VTON/ckpt/humanparsing"
-        os.makedirs(idm_parsing, exist_ok=True)
-        shutil.copy(
-            os.path.join(parsing_dir, "parsing_atr.onnx"),
-            idm_parsing,
+        atr_path = hf_hub_download(
+            repo_id="levihsu/OOTDiffusion",
+            filename="checkpoints/humanparsing/parsing_atr.onnx",
+            token=hf_token,
         )
-        shutil.copy(
-            os.path.join(parsing_dir, "parsing_lip.onnx"),
-            idm_parsing,
+        shutil.copy(atr_path, "/app/IDM-VTON/ckpt/humanparsing/parsing_atr.onnx")
+
+        lip_path = hf_hub_download(
+            repo_id="levihsu/OOTDiffusion",
+            filename="checkpoints/humanparsing/parsing_lip.onnx",
+            token=hf_token,
         )
-        print("Parsing models copied to IDM-VTON ckpt")
+        shutil.copy(lip_path, "/app/IDM-VTON/ckpt/humanparsing/parsing_lip.onnx")
+
+        print("Human parsing models copied to ckpt folder")
 
         ckpt_idm = "/app/IDM-VTON/ckpt/idm_vton"
         if not os.path.exists(ckpt_idm):
