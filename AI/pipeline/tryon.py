@@ -169,7 +169,7 @@ class TryOnPipeline:
         person_image: Image.Image,
         garment_image: Image.Image,
         category: str = "upper_body",
-    ) -> Image.Image:
+    ) -> dict:
         print("[TryOn] === Starting try-on ===")
         original = person_image.convert("RGB")
         orig_w, orig_h = original.size
@@ -203,6 +203,8 @@ class TryOnPipeline:
         composite = person_sq.copy()
         composite.paste(warped_rgb, mask=warped_alpha)
 
+        preprocessed = composite.copy()
+
         raw_result = self.pipe(
             prompt="photorealistic person wearing shirt, natural fabric draping, realistic shadows, seamless fit, high resolution portrait",
             negative_prompt="white border, black border, floating garment, misaligned clothing, artifacts, blurry, distorted face, extra limbs",
@@ -227,4 +229,4 @@ class TryOnPipeline:
         final.paste(result_cropped, (crop_box[0], crop_box[1]))
 
         print("[TryOn] === Try-on complete ===")
-        return final
+        return {"result": final, "preprocessed": preprocessed}

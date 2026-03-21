@@ -103,13 +103,14 @@ class TryOnService:
         garment_img = decode_base64_image(request["garment_image"])
         person_img  = preprocess_person(person_img)
         garment_img = preprocess_garment(garment_img)
-        result = self.pipeline.run(
+        output = self.pipeline.run(
             person_image=person_img,
             garment_image=garment_img,
             category=request.get("category", "upper_body")
         )
         return {
-            "result_image": encode_image_base64(result),
+            "result_image": encode_image_base64(output["result"]),
+            "preprocessed_image": encode_image_base64(output["preprocessed"]),
             "processing_time": round(time.time() - start, 2)
         }
 

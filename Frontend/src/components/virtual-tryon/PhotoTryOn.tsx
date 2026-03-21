@@ -49,7 +49,7 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
   const [lightingWarning, setLightingWarning] = useState<string | null>(null);
   const [sizeWarning, setSizeWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { tryOn, isLoading, resultImage, error, processingTime, reset } =
+  const { tryOn, isLoading, resultImage, preprocessedImage, error, processingTime, reset } =
     useTryOnApi();
 
   const runValidation = useCallback(async (dataUrl: string) => {
@@ -345,44 +345,63 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
       )}
 
       {resultImage && (
-        <div className="flex flex-col gap-3 w-full">
-          <img
-            src={resultImage}
-            alt="Try-on result"
-            className="w-full rounded-xl shadow-lg border border-border"
-          />
+        <div className="flex flex-col gap-4 w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {preprocessedImage && (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm font-medium text-muted-foreground text-center">
+                  What AI received
+                </p>
+                <img
+                  src={preprocessedImage}
+                  alt="Preprocessed input"
+                  className="w-full rounded-xl shadow border border-border"
+                />
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium text-center">
+                Try-On Result
+              </p>
+              <img
+                src={resultImage}
+                alt="Try-on result"
+                className="w-full rounded-xl shadow-lg border border-border"
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                className="w-full"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(resultImage);
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'nextfit-tryon.png';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch {
+                    const a = document.createElement('a');
+                    a.href = resultImage;
+                    a.download = 'nextfit-tryon.png';
+                    a.click();
+                  }
+                }}
+              >
+                Save Photo
+              </Button>
+            </div>
+          </div>
           {processingTime != null && (
             <p className="text-sm text-muted-foreground text-center">
               Processing time: {processingTime}s
             </p>
           )}
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button variant="outline" className="flex-1" onClick={handleReset}>
-              Try Another
-            </Button>
-            <Button
-              className="flex-1"
-              onClick={async () => {
-                try {
-                  const res = await fetch(resultImage);
-                  const blob = await res.blob();
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = 'nextfit-tryon.png';
-                  a.click();
-                  URL.revokeObjectURL(url);
-                } catch {
-                  const a = document.createElement('a');
-                  a.href = resultImage;
-                  a.download = 'nextfit-tryon.png';
-                  a.click();
-                }
-              }}
-            >
-              Save Photo
-            </Button>
-          </div>
+          <Button variant="outline" className="w-full" onClick={handleReset}>
+            Try Another
+          </Button>
         </div>
       )}
     </div>
