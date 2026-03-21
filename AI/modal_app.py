@@ -1,54 +1,42 @@
 import modal
 import os
 import sys
+import shutil
+import io
+import base64
+import time
 
 app = modal.App("nextfit-ai-tryon")
 
-MODAL_GPU = os.getenv("MODAL_GPU", "L4")
-MODAL_CPU = float(os.getenv("MODAL_CPU", "4.0"))
-MODAL_MEMORY = int(os.getenv("MODAL_MEMORY", "16384"))
-MODAL_SCALEDOWN = int(os.getenv("MODAL_SCALEDOWN", "30"))
-MODEL_ID = os.getenv("MODEL_ID", "diffusers/stable-diffusion-xl-1.0-inpainting-0.1")
-
 image = (
-    modal.Image.debian_slim(python_version="3.12")
-    .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0")
+    modal.Image.debian_slim(python_version="3.10")
+    .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "wget")
     .pip_install(
-        "fastapi==0.135.1",
-        "uvicorn==0.42.0",
-        "python-multipart==0.0.22",
-        "python-dotenv==1.0.1",
-        "torch==2.10.0",
-        "torchvision==0.25.0",
-        "diffusers==0.37.0",
-        "transformers==5.3.0",
-        "huggingface-hub==1.7.1",
-        "accelerate==1.6.0",
-        "safetensors==0.5.3",
-        "Pillow==12.1.1",
+        "torch==2.0.1",
+        "torchvision==0.15.2",
+        "diffusers==0.25.1",
+        "transformers==4.36.2",
+        "accelerate==0.25.0",
+        "safetensors==0.4.1",
+        "huggingface_hub==0.21.4",
+        "Pillow==10.3.0",
         "numpy==1.26.4",
         "opencv-python-headless==4.9.0.80",
+        "einops==0.7.0",
+        "fastapi==0.111.0",
+        "uvicorn==0.29.0",
+        "python-multipart==0.0.22",
+        "onnxruntime==1.17.1",
         "scipy==1.13.1",
-        "mediapipe==0.10.18",
-        "controlnet-aux==0.0.9",
-        "invisible-watermark>=0.2.0",
-        "rembg==2.0.59",
+        "basicsr",
     )
     .run_commands(
-        'python -c "'
-        'from huggingface_hub import snapshot_download; '
-        'snapshot_download(repo_id=\'diffusers/stable-diffusion-xl-1.0-inpainting-0.1\', cache_dir=\'/app/model_cache\'); '
-        'snapshot_download(repo_id=\'h94/IP-Adapter\', allow_patterns=[\'sdxl_models/ip-adapter_sdxl.bin\', \'sdxl_models/image_encoder/**\'], cache_dir=\'/app/model_cache\')'
-        '"',
-    )
-    .run_commands(
-        "git clone https://github.com/daniyal-shakeel/NextFit.git /app/NextFit",
-        force_build=True,
+        "git clone https://github.com/yisol/IDM-VTON.git /app/IDM-VTON",
     )
 )
 
-# Persistent volume — models download once, reused forever
 volume = modal.Volume.from_name("nextfit-models", create_if_missing=True)
+
 
 @app.cls(
     image=image,
@@ -56,61 +44,119 @@ volume = modal.Volume.from_name("nextfit-models", create_if_missing=True)
     cpu=4.0,
     memory=16384,
     volumes={"/app/models": volume},
-    scaledown_window=30,
+    scaledown_window=300,
     secrets=[modal.Secret.from_name("huggingface-secret")],
 )
 class TryOnService:
 
     @modal.enter()
     def load_model(self):
-        try:
-            sys.path.insert(0, "/app/NextFit/AI")
-            from pipeline.tryon import TryOnPipeline
+        from huggingface_hub import snapshot_download, hf_hub_download
 
-            self.pipeline = TryOnPipeline(
-                model_id="diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
-                cache_dir="/app/model_cache",
+        hf_token = os.environ.get("HF_TOKEN")
+
+        idm_dir = "/app/models/IDM-VTON"
+        if not os.path.exists(os.path.join(idm_dir, "config.json")):
+            print("Downloading IDM-VTON weights...")
+            snapshot_download(
+                repo_id="yisol/IDM-VTON",
+                local_dir=idm_dir,
+                token=hf_token,
             )
-            print("Model loaded successfully")
-        except Exception as e:
-            import traceback
+            volume.commit()
+            print("IDM-VTON weights downloaded")
+        else:
+            print("IDM-VTON weights already cached")
 
-            print(f"Model load failed: {e}")
-            traceback.print_exc()
-            raise
+        parsing_dir = "/app/models/checkpoints/humanparsing"
+        if not os.path.exists(os.path.join(parsing_dir, "parsing_atr.onnx")):
+            print("Downloading human parsing models...")
+            hf_hub_download(
+                repo_id="levihsu/OOTDiffusion",
+                filename="checkpoints/humanparsing/parsing_atr.onnx",
+                local_dir="/app/models",
+            )
+            hf_hub_download(
+                repo_id="levihsu/OOTDiffusion",
+                filename="checkpoints/humanparsing/parsing_lip.onnx",
+                local_dir="/app/models",
+            )
+            volume.commit()
+            print("Human parsing models downloaded")
+        else:
+            print("Human parsing models already cached")
+
+        idm_parsing = "/app/IDM-VTON/ckpt/humanparsing"
+        os.makedirs(idm_parsing, exist_ok=True)
+        shutil.copy(
+            os.path.join(parsing_dir, "parsing_atr.onnx"),
+            idm_parsing,
+        )
+        shutil.copy(
+            os.path.join(parsing_dir, "parsing_lip.onnx"),
+            idm_parsing,
+        )
+        print("Parsing models copied to IDM-VTON ckpt")
+
+        ckpt_idm = "/app/IDM-VTON/ckpt/idm_vton"
+        if not os.path.exists(ckpt_idm):
+            os.symlink(idm_dir, ckpt_idm)
+            print(f"Symlinked {idm_dir} → {ckpt_idm}")
+
+        print("Loading IDM-VTON pipeline...")
+        sys.path.insert(0, "/app/IDM-VTON")
+        from gradio_demo.app import build_model
+
+        self.pipe, self.pipe_seg = build_model()
+        print("IDM-VTON pipeline loaded successfully")
 
     @modal.fastapi_endpoint(method="GET")
     def health(self):
-        return {
-            "status": "ok",
-            "model_loaded": True,
-            "deploy_mode": "modal",
-            "gpu": "L4"
-        }
+        return {"status": "ok", "model": "IDM-VTON", "gpu": "L4"}
 
     @modal.fastapi_endpoint(method="POST")
     def tryon(self, request: dict):
-        import time
-        sys.path.insert(0, "/app/NextFit/AI")
-        from utils.image_utils import (
-            decode_base64_image,
-            encode_image_base64,
-            preprocess_person,
-            preprocess_garment
-        )
+        from PIL import Image
+
         start = time.time()
-        person_img  = decode_base64_image(request["person_image"])
-        garment_img = decode_base64_image(request["garment_image"])
-        person_img  = preprocess_person(person_img)
-        garment_img = preprocess_garment(garment_img)
-        output = self.pipeline.run(
-            person_image=person_img,
-            garment_image=garment_img,
-            category=request.get("category", "upper_body")
-        )
+
+        person_img = _decode_b64(request["person_image"])
+        garment_img = _decode_b64(request["garment_image"])
+        agnostic_img = _decode_b64(request.get("agnostic_image", request["person_image"]))
+
+        TARGET = (768, 1024)
+        person_img = person_img.resize(TARGET, Image.LANCZOS)
+        garment_img = garment_img.resize(TARGET, Image.LANCZOS)
+        agnostic_img = agnostic_img.resize(TARGET, Image.LANCZOS)
+
+        sys.path.insert(0, "/app/IDM-VTON")
+
+        result = self.pipe(
+            person_img,
+            garment_img,
+            agnostic_img,
+            num_inference_steps=30,
+            guidance_scale=2.0,
+            height=1024,
+            width=768,
+        ).images[0]
+
         return {
-            "result_image": encode_image_base64(output["result"]),
-            "preprocessed_image": encode_image_base64(output["preprocessed"]),
-            "processing_time": round(time.time() - start, 2)
+            "result_image": _encode_b64(result),
+            "processing_time": round(time.time() - start, 2),
         }
 
+
+def _decode_b64(data: str) -> "Image.Image":
+    from PIL import Image
+
+    if "," in data:
+        data = data.split(",", 1)[1]
+    raw = base64.b64decode(data)
+    return Image.open(io.BytesIO(raw)).convert("RGB")
+
+
+def _encode_b64(img: "Image.Image") -> str:
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
