@@ -55,6 +55,67 @@ function validateBase64Image(
   return { ok: true };
 }
 
+function checkImageQuality(
+  b64: string,
+): { ok: true } | { ok: false; message: string } {
+  const raw = stripDataUrlPart(b64);
+  const buf = Buffer.from(raw, 'base64');
+
+  const isPng =
+    buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+  const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+
+  let width = 0;
+  let height = 0;
+
+  if (isPng && buf.length >= 24) {
+    width = buf.readUInt32BE(16);
+    height = buf.readUInt32BE(20);
+  } else if (isJpeg) {
+    let offset = 2;
+    while (offset < buf.length - 8) {
+      if (buf[offset] !== 0xff) break;
+      const marker = buf[offset + 1];
+      if (marker === 0xc0 || marker === 0xc2) {
+        height = buf.readUInt16BE(offset + 5);
+        width = buf.readUInt16BE(offset + 7);
+        break;
+      }
+      const segLen = buf.readUInt16BE(offset + 2);
+      offset += 2 + segLen;
+    }
+  }
+
+  if (width > 0 && height > 0 && (width < 400 || height < 400)) {
+    return {
+      ok: false,
+      message: `Image resolution too low (${width}x${height}). Minimum 400x400 required.`,
+    };
+  }
+
+  if (isJpeg || isPng) {
+    const sampleSize = Math.min(buf.length, 50000);
+    const start = isPng ? 50 : 2;
+    let sum = 0;
+    let count = 0;
+    for (let i = start; i < sampleSize; i++) {
+      sum += buf[i];
+      count++;
+    }
+    if (count > 0) {
+      const avg = sum / count;
+      if (avg < 40) {
+        return {
+          ok: false,
+          message: 'Image too dark. Please use better lighting.',
+        };
+      }
+    }
+  }
+
+  return { ok: true };
+}
+
 router.post('/tryon', async (req: Request, res: Response) => {
   const person = validateBase64Image('person_image', req.body?.person_image, PERSON_MAX_BYTES);
   if (!person.ok) return res.status(400).json({ message: person.message });
@@ -65,6 +126,9 @@ router.post('/tryon', async (req: Request, res: Response) => {
     GARMENT_MAX_BYTES
   );
   if (!garment.ok) return res.status(400).json({ message: garment.message });
+
+  const quality = checkImageQuality(req.body.person_image);
+  if (!quality.ok) return res.status(400).json({ message: quality.message });
 
   const category =
     typeof req.body?.category === 'string' && req.body.category.trim()
