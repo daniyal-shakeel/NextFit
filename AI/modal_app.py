@@ -44,6 +44,7 @@ volume = modal.Volume.from_name("nextfit-models", create_if_missing=True)
     memory=16384,
     volumes={"/app/models": volume},
     scaledown_window=300,
+    timeout=900,
     secrets=[modal.Secret.from_name("huggingface-secret")],
 )
 class TryOnService:
@@ -51,38 +52,62 @@ class TryOnService:
     @modal.enter()
     def load_model(self):
         import torch
-        from huggingface_hub import snapshot_download, hf_hub_download
-        from transformers import (
-            CLIPImageProcessor,
-            CLIPVisionModelWithProjection,
-            CLIPTextModel,
-            CLIPTextModelWithProjection,
-            AutoTokenizer,
-        )
-        from diffusers import DDPMScheduler, AutoencoderKL
+        from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
+        from huggingface_hub import hf_hub_download
+
+        os.environ["HF_HOME"] = "/app/models/cache"
+        os.environ["HUGGINGFACE_HUB_CACHE"] = "/app/models/cache"
+
+        hf_token = os.environ.get("HF_TOKEN")
 
         sys.path.insert(0, "/app/IDM-VTON")
         from src.tryon_pipeline import StableDiffusionXLInpaintPipeline as TryonPipeline
         from src.unet_hacked_garmnet import UNet2DConditionModel as UNet2DConditionModel_ref
         from src.unet_hacked_tryon import UNet2DConditionModel
 
-        hf_token = os.environ.get("HF_TOKEN")
+        self.device = "cuda"
+        MODEL_ID = "yisol/IDM-VTON"
 
-        idm_dir = "/app/models/IDM-VTON"
-        if not os.path.exists("/app/models/IDM-VTON/unet"):
-            print("Downloading IDM-VTON weights...")
-            snapshot_download(
-                repo_id="yisol/IDM-VTON",
-                local_dir=idm_dir,
-                token=hf_token,
-            )
-            volume.commit()
-            print("IDM-VTON weights downloaded")
-        else:
-            print("IDM-VTON weights already cached")
+        print("Loading UNet...")
+        unet = UNet2DConditionModel.from_pretrained(
+            MODEL_ID,
+            subfolder="unet",
+            torch_dtype=torch.float16,
+            token=hf_token,
+            cache_dir="/app/models/cache",
+        )
+
+        print("Loading UNet encoder...")
+        unet_encoder = UNet2DConditionModel_ref.from_pretrained(
+            MODEL_ID,
+            subfolder="unet_encoder",
+            torch_dtype=torch.float16,
+            token=hf_token,
+            cache_dir="/app/models/cache",
+        )
+
+        print("Loading image encoder...")
+        self.image_encoder = CLIPVisionModelWithProjection.from_pretrained(
+            MODEL_ID,
+            subfolder="image_encoder",
+            torch_dtype=torch.float16,
+            token=hf_token,
+            cache_dir="/app/models/cache",
+        ).to(self.device)
+
+        print("Loading full pipeline...")
+        self.pipe = TryonPipeline.from_pretrained(
+            MODEL_ID,
+            unet=unet,
+            unet_encoder=unet_encoder,
+            torch_dtype=torch.float16,
+            token=hf_token,
+            cache_dir="/app/models/cache",
+        ).to(self.device)
+
+        self.image_processor = CLIPImageProcessor()
 
         os.makedirs("/app/IDM-VTON/ckpt/humanparsing", exist_ok=True)
-
         atr_dst = "/app/IDM-VTON/ckpt/humanparsing/parsing_atr.onnx"
         lip_dst = "/app/IDM-VTON/ckpt/humanparsing/parsing_lip.onnx"
 
@@ -100,88 +125,11 @@ class TryOnService:
                 token=hf_token,
             )
             shutil.copy(lip_path, lip_dst)
-            print("Human parsing models copied")
+            print("Human parsing models ready")
         else:
             print("Human parsing models already cached")
 
-        ckpt_idm = "/app/IDM-VTON/ckpt/idm_vton"
-        if not os.path.exists(ckpt_idm):
-            os.symlink("/app/models/IDM-VTON", ckpt_idm)
-            print("Symlinked IDM-VTON weights")
-        else:
-            print("Symlink already exists")
-
-        self.device = "cuda"
-        base_path = "/app/models/IDM-VTON"
-
-        print("Loading IDM-VTON pipeline...")
-        unet = UNet2DConditionModel.from_pretrained(
-            base_path,
-            subfolder="unet",
-            torch_dtype=torch.float16,
-        )
-        unet.requires_grad_(False)
-        tokenizer_one = AutoTokenizer.from_pretrained(
-            base_path,
-            subfolder="tokenizer",
-            revision=None,
-            use_fast=False,
-        )
-        tokenizer_two = AutoTokenizer.from_pretrained(
-            base_path,
-            subfolder="tokenizer_2",
-            revision=None,
-            use_fast=False,
-        )
-        noise_scheduler = DDPMScheduler.from_pretrained(base_path, subfolder="scheduler")
-        text_encoder_one = CLIPTextModel.from_pretrained(
-            base_path,
-            subfolder="text_encoder",
-            torch_dtype=torch.float16,
-        )
-        text_encoder_two = CLIPTextModelWithProjection.from_pretrained(
-            base_path,
-            subfolder="text_encoder_2",
-            torch_dtype=torch.float16,
-        )
-        image_encoder = CLIPVisionModelWithProjection.from_pretrained(
-            base_path,
-            subfolder="image_encoder",
-            torch_dtype=torch.float16,
-        )
-        vae = AutoencoderKL.from_pretrained(
-            base_path,
-            subfolder="vae",
-            torch_dtype=torch.float16,
-        )
-        unet_encoder = UNet2DConditionModel_ref.from_pretrained(
-            base_path,
-            subfolder="unet_encoder",
-            torch_dtype=torch.float16,
-        )
-
-        for m in (unet_encoder, image_encoder, vae, unet, text_encoder_one, text_encoder_two):
-            m.requires_grad_(False)
-
-        self.pipe = TryonPipeline.from_pretrained(
-            base_path,
-            unet=unet,
-            vae=vae,
-            feature_extractor=CLIPImageProcessor(),
-            text_encoder=text_encoder_one,
-            text_encoder_2=text_encoder_two,
-            tokenizer=tokenizer_one,
-            tokenizer_2=tokenizer_two,
-            scheduler=noise_scheduler,
-            image_encoder=image_encoder,
-            torch_dtype=torch.float16,
-        )
-        self.pipe.unet_encoder = unet_encoder
-        self.pipe.to(self.device)
-        self.pipe.unet_encoder.to(self.device)
-
-        self.image_processor = CLIPImageProcessor()
-        print("IDM-VTON pipeline loaded successfully")
+        print("IDM-VTON loaded successfully")
 
     @modal.fastapi_endpoint(method="GET")
     def health(self):
