@@ -97,7 +97,10 @@ def warp_garment(
     rs_h = max(int(ra_len), 1)
     rs_resized = right_sleeve.resize((rs_w, rs_h), Image.LANCZOS)
 
-    neck_y = measurements["neck_y"]
+    ls_y = measurements["left_shoulder"][1]
+    rs_y = measurements["right_shoulder"][1]
+    lh_y = measurements["left_hip"][1]
+    neck_y = min(ls_y, rs_y) - int((lh_y - min(ls_y, rs_y)) * 0.20)
     chest_cx = measurements["chest_center_x"]
     ls_pos = measurements["left_shoulder"]
     rs_pos = measurements["right_shoulder"]
@@ -106,7 +109,7 @@ def warp_garment(
     canvas = Image.new("RGBA", (tw, tht), (0, 0, 0, 0))
 
     body_x = int(chest_cx - body_w / 2)
-    body_y = int(neck_y)
+    body_y = max(0, int(neck_y))
     canvas.paste(body_resized, (body_x, body_y), body_resized)
 
     lsl_x = int(ls_pos[0] - ls_w)

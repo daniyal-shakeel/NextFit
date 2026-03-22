@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import mediapipe as mp
 from PIL import Image
 
 NOSE = 0
@@ -7,15 +8,12 @@ L_EYE = 2
 R_EYE = 5
 L_SHOULDER = 11
 R_SHOULDER = 12
-L_ELBOW = 13
-R_ELBOW = 14
-L_WRIST = 15
-R_WRIST = 16
 L_HIP = 23
 R_HIP = 24
 
 FACE_PAD = 0.05
-TORSO_SCALE = 1.20
+SILHOUETTE_THRESHOLD = 0.5
+DILATE_PX = 12
 
 
 def generate_cloth_mask(
@@ -24,57 +22,43 @@ def generate_cloth_mask(
     measurements: dict,
     category: str = "upper_body",
 ) -> Image.Image:
-    w = pose_data["image_width"]
-    h = pose_data["image_height"]
+    img_arr = np.array(person_image.convert("RGB"))
+    h, w = img_arr.shape[:2]
     lms = pose_data["landmarks"]
 
     def px(idx):
         return (int(lms[idx]["x"] * w), int(lms[idx]["y"] * h))
+
+    mp_selfie = mp.solutions.selfie_segmentation
+    with mp_selfie.SelfieSegmentation(model_selection=1) as seg:
+        result = seg.process(img_arr)
+    silhouette = (result.segmentation_mask > SILHOUETTE_THRESHOLD).astype(np.uint8) * 255
+
+    dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (DILATE_PX, DILATE_PX))
+    silhouette = cv2.dilate(silhouette, dilate_k, iterations=1)
 
     mask = np.zeros((h, w), dtype=np.uint8)
 
     if category == "upper_body":
         ls = px(L_SHOULDER)
         rs = px(R_SHOULDER)
-        lh = px(L_HIP)
-        rh = px(R_HIP)
-        le = px(L_ELBOW)
-        re = px(R_ELBOW)
-        lw = px(L_WRIST)
-        rw = px(R_WRIST)
-
-        arm_w = max(int(measurements["arm_width"] / 2), 4)
-        torso_half = int(measurements["shoulder_width"] * TORSO_SCALE / 2)
-        neck_lift = int(measurements["shoulder_width"] * 0.15)
-        pad_y = int(h * 0.02)
-
+        neck_lift = int(h * 0.10)
         neck_mid_y = min(ls[1], rs[1]) - neck_lift
-        cx = int(measurements["chest_center_x"])
+        top_y = max(0, neck_mid_y)
+        bottom_y = min(h, max(px(L_HIP)[1], px(R_HIP)[1]) + int(h * 0.05))
 
-        body_poly = np.array([
-            [cx - torso_half, neck_mid_y],
-            [ls[0] - arm_w, ls[1]],
-            [le[0] - arm_w, le[1]],
-            [lw[0] - arm_w, lw[1]],
-            [lw[0] + arm_w, lw[1]],
-            [le[0] + arm_w, le[1]],
-            [ls[0] + arm_w, ls[1]],
-            [lh[0] - int(w * 0.02), lh[1] + pad_y],
-            [rh[0] + int(w * 0.02), rh[1] + pad_y],
-            [rs[0] - arm_w, rs[1]],
-            [re[0] - arm_w, re[1]],
-            [rw[0] - arm_w, rw[1]],
-            [rw[0] + arm_w, rw[1]],
-            [re[0] + arm_w, re[1]],
-            [rs[0] + arm_w, rs[1]],
-            [cx + torso_half, neck_mid_y],
-        ], dtype=np.int32)
-        cv2.fillPoly(mask, [body_poly], 255)
+        region = np.zeros((h, w), dtype=np.uint8)
+        region[top_y:bottom_y, :] = 255
 
-        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_kernel)
+        mask = cv2.bitwise_and(silhouette, region)
 
-        mask = cv2.GaussianBlur(mask, (51, 51), 0)
+        close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (35, 35))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_k)
+
+        open_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, open_k)
+
+        mask = cv2.GaussianBlur(mask, (21, 21), 0)
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
 
         nose = px(NOSE)
@@ -98,17 +82,21 @@ def generate_cloth_mask(
         mask = np.where(face_protect > 127, 0, mask).astype(np.uint8)
 
     elif category == "lower_body":
-        lh = px(L_HIP)
-        rh = px(R_HIP)
-        pad_x = int(w * 0.08)
-
-        points = np.array([
-            [lh[0] - pad_x, lh[1]],
-            [rh[0] + pad_x, rh[1]],
-            [rh[0] + pad_x, h],
-            [lh[0] - pad_x, h],
-        ], dtype=np.int32)
-        cv2.fillPoly(mask, [points], 255)
+        top_y = min(px(L_HIP)[1], px(R_HIP)[1])
+        region = np.zeros((h, w), dtype=np.uint8)
+        region[top_y:, :] = 255
+        mask = cv2.bitwise_and(silhouette, region)
 
     mask_image = Image.fromarray(mask).convert("RGB")
     return mask_image
+
+
+def generate_agnostic_image(
+    person_image: Image.Image,
+    cloth_mask: Image.Image,
+) -> Image.Image:
+    """Fill masked region with grey (128,128,128), keep rest of person."""
+    person_arr = np.array(person_image.convert("RGB"))
+    mask_arr = np.array(cloth_mask.convert("L"))
+    person_arr[mask_arr > 127] = 128
+    return Image.fromarray(person_arr)
