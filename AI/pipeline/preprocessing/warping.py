@@ -4,8 +4,6 @@ from rembg import remove as rembg_remove
 
 BODY_ZONE_RATIO = 0.60
 SLEEVE_ZONE_RATIO = 0.20
-BODY_SCALE_W = 1.20
-BODY_SCALE_H = 1.10
 SEAM_BLUR_RADIUS = 5
 DARK_THRESH = 50
 LIGHT_THRESH = 210
@@ -71,13 +69,13 @@ def warp_garment(
 ) -> Image.Image:
     nobg = _remove_background(garment_image)
 
-    gw, gh = nobg.size
-    body_x0 = int(gw * SLEEVE_ZONE_RATIO)
-    body_x1 = int(gw * (SLEEVE_ZONE_RATIO + BODY_ZONE_RATIO))
+    nobg_w, nobg_h = nobg.size
+    body_x0 = int(nobg_w * SLEEVE_ZONE_RATIO)
+    body_x1 = int(nobg_w * (SLEEVE_ZONE_RATIO + BODY_ZONE_RATIO))
 
-    left_sleeve = nobg.crop((0, 0, body_x0, gh))
-    body_zone = nobg.crop((body_x0, 0, body_x1, gh))
-    right_sleeve = nobg.crop((body_x1, 0, gw, gh))
+    left_sleeve = nobg.crop((0, 0, body_x0, nobg_h))
+    body_zone = nobg.crop((body_x0, 0, body_x1, nobg_h))
+    right_sleeve = nobg.crop((body_x1, 0, nobg_w, nobg_h))
 
     sw = measurements["shoulder_width"]
     th = measurements["torso_height"]
@@ -85,9 +83,9 @@ def warp_garment(
     la_len = measurements["left_arm_length"]
     ra_len = measurements["right_arm_length"]
 
-    body_w = max(int(sw * BODY_SCALE_W), 1)
-    body_h = max(int(th * BODY_SCALE_H), 1)
-    body_resized = body_zone.resize((body_w, body_h), Image.LANCZOS)
+    gw = max(int(sw * 2.5), 1)
+    gh = max(int(th * 1.5), 1)
+    body_resized = body_zone.resize((gw, gh), Image.LANCZOS)
 
     ls_w = max(int(aw), 1)
     ls_h = max(int(la_len), 1)
@@ -108,8 +106,8 @@ def warp_garment(
     tw, tht = target_size
     canvas = Image.new("RGBA", (tw, tht), (0, 0, 0, 0))
 
-    body_x = int(chest_cx - body_w / 2)
-    body_y = max(0, int(neck_y))
+    body_x = int(chest_cx - gw / 2)
+    body_y = max(0, int(neck_y - gh * 0.05))
     canvas.paste(body_resized, (body_x, body_y), body_resized)
 
     lsl_x = int(ls_pos[0] - ls_w)
@@ -122,6 +120,6 @@ def warp_garment(
 
     arr = np.array(canvas)
     arr = _blur_seam(arr, body_x, 10)
-    arr = _blur_seam(arr, body_x + body_w, 10)
+    arr = _blur_seam(arr, body_x + gw, 10)
 
     return Image.fromarray(arr, "RGBA")
