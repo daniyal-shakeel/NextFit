@@ -3,6 +3,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,9 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+request_counter = 0
+counter_lock = threading.Lock()
 
 
 @asynccontextmanager
@@ -136,6 +140,9 @@ async def tryon(request: TryOnRequest):
     start = time.time()
     modal_url = os.getenv("MODAL_AI_URL")
 
+    original_person_b64 = request.person_image
+    original_garment_b64 = request.garment_image
+
     try:
         person_img = decode_base64_image(request.person_image)
         person_img = preprocess_person(person_img).convert("RGB")
@@ -164,7 +171,6 @@ async def tryon(request: TryOnRequest):
         cloth_mask_resized = cloth_mask.resize(MODAL_SIZE, Image.LANCZOS)
         logger.info(f"Resized person, agnostic, garment, and mask to {MODAL_SIZE} for Modal")
 
-        original_person_b64 = encode_image_base64(person_resized)
         agnostic_b64 = encode_image_base64(agnostic)
         garment_positioned_b64 = encode_image_base64(garment_positioned)
         cloth_mask_b64 = encode_image_base64(cloth_mask_resized)
@@ -185,13 +191,33 @@ async def tryon(request: TryOnRequest):
 
     import requests as req_lib
     target = modal_url.rstrip("/")
+
+    global request_counter
+    with counter_lock:
+        request_counter += 1
+        req_num = request_counter
+
+    save_dir = os.path.join(os.path.dirname(__file__), "requests", str(req_num))
+    os.makedirs(save_dir, exist_ok=True)
+
+    person_pil = person_resized
+    agnostic_pil = agnostic
+    cloth_mask_pil = cloth_mask_resized
+    garment_pil = garment_positioned
+
+    person_pil.save(os.path.join(save_dir, "1_person_original.png"))
+    agnostic_pil.save(os.path.join(save_dir, "2_person_agnostic.png"))
+    cloth_mask_pil.save(os.path.join(save_dir, "3_cloth_mask.png"))
+    garment_pil.save(os.path.join(save_dir, "4_garment_positioned.png"))
+    logger.info(f"Saved debug images to {save_dir}")
+
     logger.info(f"Forwarding preprocessed images to Modal: {target}")
     try:
         resp = req_lib.post(
             target,
             json={
                 "person_image": original_person_b64,
-                "garment_image": garment_positioned_b64,
+                "garment_image": original_garment_b64,
                 "agnostic_image": agnostic_b64,
                 "mask_image": cloth_mask_b64,
                 "garment_description": "a shirt",
@@ -210,12 +236,17 @@ async def tryon(request: TryOnRequest):
     raw_model_b64 = modal_data.get("result_image", agnostic_b64)
 
     logger.info("Local post-processing: sharpening + contrast...")
+    raw_result_pil = decode_base64_image(raw_model_b64)
     try:
-        raw_model_img = decode_base64_image(raw_model_b64)
-        final_img = _post_process(raw_model_img)
-        final_result_b64 = encode_image_base64(final_img)
+        final_result_pil = _post_process(raw_result_pil)
+        final_result_b64 = encode_image_base64(final_result_pil)
     except Exception:
+        final_result_pil = raw_result_pil
         final_result_b64 = raw_model_b64
+
+    raw_result_pil.save(os.path.join(save_dir, "5_raw_model_output.png"))
+    final_result_pil.save(os.path.join(save_dir, "6_final_postprocessed.png"))
+    logger.info(f"Saved Modal output images to {save_dir}")
 
     elapsed = round(time.time() - start, 2)
     logger.info(f"Full pipeline completed in {elapsed}s")
