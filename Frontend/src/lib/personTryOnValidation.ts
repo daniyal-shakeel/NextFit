@@ -1,12 +1,8 @@
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 
 const MODEL_PATH =
-  'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+  'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
 const WASM_PATH = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm';
-
-const IDX = { L_SHOULDER: 11, R_SHOULDER: 12, L_HIP: 23, R_HIP: 24 } as const;
-const VIS_MIN = 0.75;
-const BOUNDS = { lo: 0.05, hi: 0.95 } as const;
 
 let landmarkerPromise: Promise<PoseLandmarker> | null = null;
 
@@ -96,69 +92,9 @@ export async function validatePersonPoseFromDataUrl(
   }
 
   console.log("Landmarks detected:", result.landmarks.length);
-  if (result.landmarks.length > 0) {
-    console.log("Landmark 11 visibility:", result.landmarks[0][11]?.visibility);
-    console.log("Landmark 12 visibility:", result.landmarks[0][12]?.visibility);
-  }
 
-  // Strict: reject if no pose detected
   if (!result.landmarks || result.landmarks.length === 0) {
-    console.log("Validation result: FAIL");
-    return { ok: false, message: PERSON_NOT_VISIBLE };
-  }
-
-  if (!result.worldLandmarks || result.worldLandmarks.length === 0) {
-    console.log("Validation result: FAIL");
-    return { ok: false, message: PERSON_NOT_VISIBLE };
-  }
-
-  const lm = result.landmarks?.[0];
-  if (!lm || lm.length < 25) {
-    return { ok: false, message: PERSON_NOT_VISIBLE };
-  }
-
-  const need = [IDX.L_SHOULDER, IDX.R_SHOULDER, IDX.L_HIP, IDX.R_HIP];
-  for (const i of need) {
-    const p = lm[i];
-    if (!p) {
-      console.log("Validation result: FAIL");
-      return { ok: false, message: 'Person not clearly visible.' };
-    }
-    const vis = p.visibility ?? 0;
-    if (vis <= VIS_MIN) {
-      console.log("Validation result: FAIL");
-      return { ok: false, message: 'Person not clearly visible.' };
-    }
-    if (
-      p.x < BOUNDS.lo ||
-      p.x > BOUNDS.hi ||
-      p.y < BOUNDS.lo ||
-      p.y > BOUNDS.hi
-    ) {
-      console.log("Validation result: FAIL");
-      return { ok: false, message: PERSON_NOT_VISIBLE };
-    }
-  }
-
-  // Check 1 — Shoulder width ratio (real person check)
-  const lSho = lm[11];
-  const rSho = lm[12];
-  const shoulderWidth = Math.abs(rSho.x - lSho.x);
-
-  // Real person shoulder width should be 0.15 to 0.55 of image width
-  // Too narrow = not a person, too wide = too close/distorted
-  if (shoulderWidth < 0.15 || shoulderWidth > 0.55) {
-    console.log("Validation result: FAIL");
-    return { ok: false, message: PERSON_NOT_VISIBLE };
-  }
-
-  // Check 2 — Torso height ratio
-  const lHip = lm[23];
-  const torsoHeight = Math.abs(lHip.y - lSho.y);
-
-  // Torso should be at least 15% of image height
-  if (torsoHeight < 0.15) {
-    console.log("Validation result: FAIL");
+    console.log("Validation result: FAIL — no pose found");
     return { ok: false, message: PERSON_NOT_VISIBLE };
   }
 

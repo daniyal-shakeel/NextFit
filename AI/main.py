@@ -161,12 +161,13 @@ async def tryon(request: TryOnRequest):
         person_resized = person_img.resize(MODAL_SIZE, Image.LANCZOS)
         agnostic = agnostic.resize(MODAL_SIZE, Image.LANCZOS)
         garment_positioned = garment_positioned.resize(MODAL_SIZE, Image.LANCZOS)
-        logger.info(f"Resized person, agnostic, and garment to {MODAL_SIZE} for Modal")
+        cloth_mask_resized = cloth_mask.resize(MODAL_SIZE, Image.LANCZOS)
+        logger.info(f"Resized person, agnostic, garment, and mask to {MODAL_SIZE} for Modal")
 
-        person_b64 = encode_image_base64(person_resized)
-
+        original_person_b64 = encode_image_base64(person_resized)
         agnostic_b64 = encode_image_base64(agnostic)
-        garment_b64 = encode_image_base64(garment_positioned)
+        garment_positioned_b64 = encode_image_base64(garment_positioned)
+        cloth_mask_b64 = encode_image_base64(cloth_mask_resized)
     except Exception as e:
         logger.error(f"Local preprocessing failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -175,8 +176,9 @@ async def tryon(request: TryOnRequest):
         elapsed = round(time.time() - start, 2)
         logger.info(f"Local-only mode completed in {elapsed}s")
         return {
-            "preprocessed_image": agnostic_b64,
-            "raw_model_image": agnostic_b64,
+            "preprocessed_person": agnostic_b64,
+            "preprocessed_garment": garment_positioned_b64,
+            "raw_result": agnostic_b64,
             "result_image": agnostic_b64,
             "processing_time": elapsed,
         }
@@ -188,9 +190,11 @@ async def tryon(request: TryOnRequest):
         resp = req_lib.post(
             target,
             json={
-                "person_image": person_b64,
-                "garment_image": garment_b64,
+                "person_image": original_person_b64,
+                "garment_image": garment_positioned_b64,
                 "agnostic_image": agnostic_b64,
+                "mask_image": cloth_mask_b64,
+                "garment_description": "a shirt",
                 "category": request.category,
             },
             timeout=300,
@@ -209,16 +213,17 @@ async def tryon(request: TryOnRequest):
     try:
         raw_model_img = decode_base64_image(raw_model_b64)
         final_img = _post_process(raw_model_img)
-        final_b64 = encode_image_base64(final_img)
+        final_result_b64 = encode_image_base64(final_img)
     except Exception:
-        final_b64 = raw_model_b64
+        final_result_b64 = raw_model_b64
 
     elapsed = round(time.time() - start, 2)
     logger.info(f"Full pipeline completed in {elapsed}s")
     return {
-        "preprocessed_image": agnostic_b64,
-        "raw_model_image": raw_model_b64,
-        "result_image": final_b64,
+        "preprocessed_person": agnostic_b64,
+        "preprocessed_garment": garment_positioned_b64,
+        "raw_result": raw_model_b64,
+        "result_image": final_result_b64,
         "processing_time": elapsed,
     }
 

@@ -6,7 +6,9 @@ const BACKEND_URL =
 export function useTryOnApi() {
   const [isLoading, setIsLoading] = useState(false);
   const [resultImage, setResultImage] = useState<string | null>(null);
-  const [preprocessedImage, setPreprocessedImage] = useState<string | null>(null);
+  const [preprocessedPerson, setPreprocessedPerson] = useState<string | null>(null);
+  const [preprocessedGarment, setPreprocessedGarment] = useState<string | null>(null);
+  const [rawResult, setRawResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processingTime, setProcessingTime] = useState<number | null>(null);
 
@@ -18,7 +20,9 @@ export function useTryOnApi() {
     setIsLoading(true);
     setError(null);
     setResultImage(null);
-    setPreprocessedImage(null);
+    setPreprocessedPerson(null);
+    setPreprocessedGarment(null);
+    setRawResult(null);
     try {
       const response = await fetch(`${BACKEND_URL}/api/tryon`, {
         method: 'POST',
@@ -61,9 +65,23 @@ export function useTryOnApi() {
 
       const data = await response.json();
       setResultImage(`data:image/png;base64,${data.result_image}`);
-      if (data.preprocessed_image) {
-        setPreprocessedImage(`data:image/png;base64,${data.preprocessed_image}`);
+
+      if (data.preprocessed_person) {
+        setPreprocessedPerson(`data:image/png;base64,${data.preprocessed_person}`);
+      } else if (data.preprocessed_image) {
+        setPreprocessedPerson(`data:image/png;base64,${data.preprocessed_image}`);
       }
+
+      if (data.preprocessed_garment) {
+        setPreprocessedGarment(`data:image/png;base64,${data.preprocessed_garment}`);
+      }
+
+      if (data.raw_result) {
+        setRawResult(`data:image/png;base64,${data.raw_result}`);
+      } else if (data.raw_model_image) {
+        setRawResult(`data:image/png;base64,${data.raw_model_image}`);
+      }
+
       setProcessingTime(data.processing_time);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Try-on failed');
@@ -74,10 +92,22 @@ export function useTryOnApi() {
 
   const reset = () => {
     setResultImage(null);
-    setPreprocessedImage(null);
+    setPreprocessedPerson(null);
+    setPreprocessedGarment(null);
+    setRawResult(null);
     setError(null);
     setProcessingTime(null);
   };
 
-  return { tryOn, isLoading, resultImage, preprocessedImage, error, processingTime, reset };
+  return {
+    tryOn,
+    isLoading,
+    resultImage,
+    preprocessedPerson,
+    preprocessedGarment,
+    rawResult,
+    error,
+    processingTime,
+    reset,
+  };
 }

@@ -49,8 +49,17 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
   const [lightingWarning, setLightingWarning] = useState<string | null>(null);
   const [sizeWarning, setSizeWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { tryOn, isLoading, resultImage, preprocessedImage, error, processingTime, reset } =
-    useTryOnApi();
+  const {
+    tryOn,
+    isLoading,
+    resultImage,
+    preprocessedPerson,
+    preprocessedGarment,
+    rawResult,
+    error,
+    processingTime,
+    reset,
+  } = useTryOnApi();
 
   const runValidation = useCallback(async (dataUrl: string) => {
     setIsValidating(true);
@@ -346,32 +355,54 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
 
       {resultImage && (
         <div className="flex flex-col gap-4 w-full">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {preprocessedImage && (
-              <div className="flex flex-col gap-2">
-                <p className="text-sm font-medium text-muted-foreground text-center">
-                  What AI received
-                </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+            {preprocessedPerson && (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-sm font-medium text-center">Person Input</p>
                 <img
-                  src={preprocessedImage}
-                  alt="Preprocessed input"
+                  src={preprocessedPerson}
+                  alt="Person after preprocessing"
                   className="w-full rounded-xl shadow border border-border"
                 />
+                <p className="text-xs text-muted-foreground text-center">After preprocessing</p>
               </div>
             )}
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium text-center">
-                Try-On Result
-              </p>
+            {preprocessedGarment && (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-sm font-medium text-center">Garment Input</p>
+                <img
+                  src={preprocessedGarment}
+                  alt="Garment after preprocessing"
+                  className="w-full rounded-xl shadow border border-border"
+                />
+                <p className="text-xs text-muted-foreground text-center">After preprocessing</p>
+              </div>
+            )}
+            {rawResult && (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-sm font-medium text-muted-foreground text-center">
+                  Raw AI Output
+                </p>
+                <img
+                  src={rawResult}
+                  alt="Raw AI output"
+                  className="w-full rounded-xl shadow border border-border"
+                />
+                <p className="text-xs text-muted-foreground text-center">Before enhancement</p>
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5">
+              <p className="text-sm font-medium text-center">Final Result</p>
               <img
                 src={resultImage}
-                alt="Try-on result"
+                alt="Final result"
                 className="w-full rounded-xl shadow-lg border border-border"
               />
+              <p className="text-xs text-muted-foreground text-center">After enhancement</p>
               <Button
                 size="sm"
                 variant="secondary"
-                className="w-full"
+                className="w-full mt-1"
                 onClick={async () => {
                   try {
                     const res = await fetch(resultImage);

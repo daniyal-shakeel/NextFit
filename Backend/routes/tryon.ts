@@ -176,6 +176,10 @@ router.post('/tryon', async (req: Request, res: Response) => {
     const data = (await aiRes.json()) as {
       result_image?: string;
       preprocessed_image?: string;
+      raw_model_image?: string;
+      preprocessed_person?: string;
+      preprocessed_garment?: string;
+      raw_result?: string;
       processing_time?: number;
     };
     if (typeof data.result_image !== 'string' || !data.result_image) {
@@ -188,6 +192,10 @@ router.post('/tryon', async (req: Request, res: Response) => {
     return res.json({
       result_image: data.result_image,
       preprocessed_image: data.preprocessed_image ?? null,
+      raw_model_image: data.raw_model_image ?? null,
+      preprocessed_person: data.preprocessed_person ?? null,
+      preprocessed_garment: data.preprocessed_garment ?? null,
+      raw_result: data.raw_result ?? null,
       processing_time:
         typeof data.processing_time === 'number' ? data.processing_time : 0,
     });
