@@ -910,7 +910,7 @@ export default function Orders() {
                   ))}
                 </div>
               </fieldset>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label htmlFor="filter-from" className="mb-1 block text-xs font-medium text-muted-foreground">
                     From date
@@ -937,7 +937,14 @@ export default function Orders() {
                 </div>
               </div>
             </div>
-            <div className="border-t border-border p-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <div className="border-t border-border p-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen(false)}
+                className="rounded-md border border-input bg-background px-4 py-2 text-sm hover:bg-accent"
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 onClick={resetDraftFilters}

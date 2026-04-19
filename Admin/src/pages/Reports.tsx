@@ -411,7 +411,7 @@ export default function Reports() {
                   <p className="text-xs text-muted-foreground">Non-suspended customers</p>
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                 <div className="flex min-h-[7rem] flex-col justify-between rounded-xl border border-border bg-card p-5 shadow-sm ring-1 ring-border/40">
                   <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                     <BarChart3 className="h-4 w-4 opacity-80" aria-hidden />

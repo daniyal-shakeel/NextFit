@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   aiAPI,
   type CategoryItem,
@@ -251,16 +251,15 @@ export function ProductAiAssistantModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/50 dark:bg-black/60 overflow-y-auto">
-      <div className="w-full max-w-5xl max-h-[calc(100vh-1.5rem)] min-h-0 flex flex-col rounded-xl bg-card border border-border shadow-xl my-auto">
+      <div className="w-full min-w-0 max-w-5xl max-h-[calc(100vh-1.5rem)] min-h-0 flex flex-col rounded-xl bg-card border border-border shadow-xl my-auto">
         <div className="flex shrink-0 items-center justify-between gap-2 px-4 sm:px-6 pt-4 sm:pt-5 pb-2 border-b border-border">
           <h2 className="text-lg font-semibold text-foreground">AI product assistant</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Close"
+            className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            <X className="h-5 w-5" />
+            Cancel
           </button>
         </div>
 
@@ -506,7 +505,7 @@ export function ProductAiAssistantModal({
                   onClick={onClose}
                   className="rounded-md px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
                 >
-                  Close
+                  Cancel
                 </button>
               </div>
             </div>

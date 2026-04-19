@@ -667,7 +667,14 @@ export default function Inventory() {
                 </select>
               </div>
             </div>
-            <div className="flex flex-col gap-2 border-t border-border p-4 sm:flex-row sm:justify-end">
+            <div className="flex flex-col gap-2 border-t border-border p-4 sm:flex-row sm:flex-wrap sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen(false)}
+                className="rounded-md border border-input bg-background px-4 py-2 text-sm hover:bg-accent"
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 onClick={() => setDraftStockFilter("")}

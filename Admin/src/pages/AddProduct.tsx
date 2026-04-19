@@ -533,7 +533,7 @@ export default function AddProduct() {
                 ) : null}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium mb-1">Base price *</label>
                   <input

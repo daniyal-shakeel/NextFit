@@ -374,17 +374,29 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
                 className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 dark:bg-black/60 p-4"
                 onClick={() => setLightbox(null)}
               >
-                <button
-                  type="button"
-                  className="absolute right-4 top-4 z-[101] rounded-full bg-background/95 p-2 text-foreground shadow-md ring-1 ring-border transition-colors hover:bg-accent dark:border dark:border-gray-700"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setLightbox(null);
-                  }}
-                  aria-label="Close preview"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div className="absolute right-4 top-4 z-[101] flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-border bg-background/95 px-3 py-2 text-sm font-medium text-foreground shadow-md transition-colors hover:bg-accent"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLightbox(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full bg-background/95 p-2 text-foreground shadow-md ring-1 ring-border transition-colors hover:bg-accent dark:border dark:border-gray-700"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLightbox(null);
+                    }}
+                    aria-label="Close preview"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
                 <img
                   src={lightbox.src}
                   alt={lightbox.alt}

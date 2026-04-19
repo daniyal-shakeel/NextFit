@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 export function ScrollTopBottomButtons() {
   return (
     <div
-      className="fixed bottom-6 right-6 z-30 flex flex-col gap-2"
+      className="fixed bottom-4 right-4 z-30 flex flex-col gap-2 sm:bottom-6 sm:right-6"
       role="navigation"
       aria-label="Scroll to top or bottom"
     >

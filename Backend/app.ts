@@ -45,8 +45,7 @@ const allowedOrigins = Array.from(
   new Set(
     [
       process.env.FRONTEND_URL || 'http://localhost:8080',
-      process.env.ADMIN_URL || 'http://localhost:5173',
-      process.env.FRONTEND_PROD_URL || 'https://nextfit-74b7d.web.app',
+      process.env.ADMIN_URL || 'http://localhost:5173'
     ]
       .filter(Boolean)
       .map((u) => normalizeOriginUrl(u as string))

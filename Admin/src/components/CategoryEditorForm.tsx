@@ -269,7 +269,7 @@ export function CategoryEditorForm({
                 <span className="text-xs text-muted-foreground">No image</span>
               )}
             </div>
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <label className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium border border-input hover:bg-accent cursor-pointer">
                   <input
@@ -335,7 +335,7 @@ export function CategoryEditorForm({
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>
-      <div className="flex gap-2 justify-end pt-2">
+      <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
         {onCancel ? (
           <button
             type="button"

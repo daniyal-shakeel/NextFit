@@ -1,0 +1,11 @@
+services:
+  backend:
+    build: .
+    container_name: nextfit
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env.production
+    volumes:
+      - ./firebase-service-account.json:/app/firebase-service-account.json
+    restart: always

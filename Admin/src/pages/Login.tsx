@@ -27,7 +27,7 @@ export default function Login() {
   };
 
   return (
-    <div className="relative min-h-screen bg-background py-16 flex flex-col items-center justify-center px-4">
+    <div className="relative min-h-screen bg-background py-10 sm:py-16 flex flex-col items-center justify-center px-4">
       <div className="absolute top-4 right-4 z-10">
         <ThemeToggle />
       </div>
@@ -40,7 +40,7 @@ export default function Login() {
           <p className="mt-2 text-sm text-muted-foreground">Enter your admin credentials to continue</p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-8 shadow-sm">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-8">
           {error && (
             <div className="mb-4 rounded-xl bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
               {error}

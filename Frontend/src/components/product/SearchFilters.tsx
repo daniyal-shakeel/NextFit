@@ -282,13 +282,19 @@ export function SearchFilters({
                     </div>
                   </div>
                 ) : null}
-
-                <SheetClose asChild>
-                  <Button type="button" className="w-full">
-                    Apply Filters
-                  </Button>
-                </SheetClose>
               </div>
+            </div>
+            <div className="shrink-0 border-t border-border px-6 py-4 flex flex-col gap-2">
+              <SheetClose asChild>
+                <Button variant="outline" type="button" className="w-full">
+                  Cancel
+                </Button>
+              </SheetClose>
+              <SheetClose asChild>
+                <Button type="button" className="w-full">
+                  Apply Filters
+                </Button>
+              </SheetClose>
             </div>
           </SheetContent>
         </Sheet>

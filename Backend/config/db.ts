@@ -3,9 +3,8 @@ import mongoose from 'mongoose';
 const RETRY_DELAY_MS = 5000;
 
 const connectDB = async (): Promise<void> => {
-  const uri = `${process.env.MONGODB_URI || 'mongodb://localhost:27017'}/${process.env.DB_NAME || 'nextfit'}`;
   try {
-    await mongoose.connect(uri);
+    await mongoose.connect(process.env.MONGODB_URI as string);
     console.log('MongoDB connected successfully');
   } catch (error) {
     console.error('MongoDB connection error:', error);
