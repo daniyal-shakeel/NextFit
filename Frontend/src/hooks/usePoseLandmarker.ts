@@ -2,10 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { RefObject } from 'react';
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 import type { NormalizedLandmark } from '@/utils/poseUtils';
+import { getMediapipeVisionWasmRoot } from '@/lib/mediapipeVisionWasm';
 
 const MODEL_PATH =
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
-const WASM_PATH = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
 
 export function usePoseLandmarker(videoRef: RefObject<HTMLVideoElement | null>, isActive: boolean) {
   const [landmarks, setLandmarks] = useState<NormalizedLandmark[] | null>(null);
@@ -21,7 +21,7 @@ export function usePoseLandmarker(videoRef: RefObject<HTMLVideoElement | null>, 
     let cancelled = false;
     (async () => {
       try {
-        const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
+        const vision = await FilesetResolver.forVisionTasks(getMediapipeVisionWasmRoot());
         const landmarker = await PoseLandmarker.createFromOptions(vision, {
           baseOptions: { modelAssetPath: MODEL_PATH },
           runningMode: 'VIDEO',
@@ -36,7 +36,15 @@ export function usePoseLandmarker(videoRef: RefObject<HTMLVideoElement | null>, 
         }
       } catch (err) {
         if (!cancelled) {
-          setModelError(err instanceof Error ? err.message : 'Failed to load pose model');
+          const message =
+            err instanceof Error
+              ? err.message
+              : typeof err === 'string'
+                ? err
+                : err != null
+                  ? String(err)
+                  : 'Failed to load pose model';
+          setModelError(message || 'Failed to load pose model');
           setIsModelLoaded(false);
         }
       }

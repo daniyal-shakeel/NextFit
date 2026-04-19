@@ -1,7 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Rounded square background with primary color (purple) -->
   <rect width="32" height="32" rx="6" fill="hsl(258, 89%, 66%)"/>
-  <!-- Shirt icon (simplified version of lucide-react Shirt icon) -->
   <path d="M16 8L12 6L10 8V10C10 10.5 10.5 11 11 11H13V22H19V11H21C21.5 11 22 10.5 22 10V8L20 6L16 8Z" fill="hsl(250, 100%, 97%)" stroke="hsl(250, 100%, 97%)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
 

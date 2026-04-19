@@ -15,7 +15,7 @@ from pipeline.preprocessing.pose import extract_pose
 from pipeline.preprocessing.measurements import extract_measurements
 from pipeline.preprocessing.masking import generate_cloth_mask, generate_agnostic_image
 
-load_dotenv()
+load_dotenv(os.environ.get("NEXTFIT_DOTENV_FILE") or ".env")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -212,6 +212,10 @@ async def tryon(request: TryOnRequest):
     logger.info(f"Saved debug images to {save_dir}")
 
     logger.info(f"Forwarding preprocessed images to Modal: {target}")
+    print("DEBUG person_image length:", len(original_person_b64) if original_person_b64 else "NONE")
+    print("DEBUG garment_image length:", len(original_garment_b64) if original_garment_b64 else "NONE")
+    print("DEBUG agnostic_image length:", len(agnostic_b64) if agnostic_b64 else "NONE")
+    print("DEBUG mask_image length:", len(cloth_mask_b64) if cloth_mask_b64 else "NONE")
     try:
         resp = req_lib.post(
             target,

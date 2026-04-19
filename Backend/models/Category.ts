@@ -1,8 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
-/**
- * Category document interface
- */
 export interface ICategory extends Document {
   name: string;
   slug: string;
@@ -49,8 +46,6 @@ const categorySchema = new Schema<ICategory>(
     timestamps: true,
   }
 );
-
-// slug index created by field option unique: true above
 
 const Category = mongoose.model<ICategory>('Category', categorySchema);
 

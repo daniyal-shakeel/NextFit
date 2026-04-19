@@ -48,7 +48,6 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
     >
       <Link to={`/product/${product.id}`}>
         <div className="relative bg-card rounded-xl overflow-hidden border border-border hover:border-primary/50 transition-all duration-300 hover:shadow-xl">
-          {/* Image Container */}
           <div className="relative aspect-square overflow-hidden">
             <img
               src={product.image}
@@ -56,7 +55,6 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
             />
             
-            {/* Badges */}
             <div className="absolute top-3 left-3 flex flex-col gap-2">
               {product.isNew && (
                 <Badge className="bg-primary text-primary-foreground">New</Badge>
@@ -69,7 +67,6 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               )}
             </div>
 
-            {/* Quick Actions */}
             <div className="absolute top-3 right-3 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
               <Button size="icon" variant="secondary" className="h-9 w-9">
                 <Heart className="h-4 w-4" />
@@ -79,8 +76,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               </Button>
             </div>
 
-            {/* Add to Cart Overlay */}
-            <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-foreground/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
               <Button
                 className="w-full"
                 onClick={handleAddToCart}
@@ -92,7 +88,6 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
             </div>
           </div>
 
-          {/* Product Info */}
           <div className="p-4 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground uppercase tracking-wider">
@@ -117,11 +112,6 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               <span className="text-lg font-bold text-primary">
                 {CURRENCY} {product.price.toFixed(2)}
               </span>
-              {product.isCustomizable && (
-                <Badge variant="outline" className="text-xs">
-                  Customizable
-                </Badge>
-              )}
             </div>
           </div>
         </div>

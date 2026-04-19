@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Vite: esbuild cache next to vite.config.ts (regenerated on dev/build)
+vite.config.ts.timestamp-*.mjs
+
+.env
+.env.local
+.env.production
+.env.*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -23,3 +34,7 @@ dist-ssr
 *.sln
 *.sw?
 
+public/mediapipe-tasks-vision/wasm/*
+!public/mediapipe-tasks-vision/wasm/.gitkeep
+
+.firebase

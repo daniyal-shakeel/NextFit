@@ -1,23 +1,26 @@
-/**
- * API utility functions for backend communication
- */
-
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001/api';
 
-// Create axios instance with default configuration
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true, // Include cookies in requests
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-/**
- * Make an API request with automatic cookie handling
- */
+/** Thrown by {@link apiRequest} on HTTP errors; includes status for branching (e.g. phone verify 409/404). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function apiRequest<T>(
   endpoint: string,
   options: AxiosRequestConfig = {}
@@ -36,40 +39,29 @@ async function apiRequest<T>(
         success?: boolean;
       }>;
       
-      // Extract error message from response
       const responseData = axiosError.response?.data;
       let errorMessage = 'An error occurred';
       
       if (responseData) {
-        // Check for message field
         if (responseData.message) {
           errorMessage = responseData.message;
         }
-        // Check for errors array
         else if (Array.isArray(responseData.errors) && responseData.errors.length > 0) {
           errorMessage = responseData.errors[0];
         }
-        // Check for errors object
         else if (responseData.errors && typeof responseData.errors === 'object') {
           const firstError = Object.values(responseData.errors)[0];
           errorMessage = typeof firstError === 'string' ? firstError : 'Validation error';
         }
       }
       
-      throw new Error(errorMessage || axiosError.message || 'An error occurred');
+      throw new ApiError(errorMessage || axiosError.message || 'An error occurred', axiosError.response?.status);
     }
     throw error;
   }
 }
 
-/**
- * Auth API functions
- */
 export const authAPI = {
-  /**
-   * Verify Google sign-in (Firebase ID token).
-   * Call after signInWithPopup on the client.
-   */
   verifyGoogle: async (idToken: string) => {
     return apiRequest<{
       success: boolean;
@@ -90,9 +82,6 @@ export const authAPI = {
     });
   },
 
-  /**
-   * Signup with email and password
-   */
   signup: async (authMethod: 'email' | 'phone' | 'google', data: {
     name?: string;
     email?: string;
@@ -114,9 +103,6 @@ export const authAPI = {
     });
   },
 
-  /**
-   * Login with email and password
-   */
   login: async (email: string, password: string) => {
     return apiRequest<{
       success: boolean;
@@ -137,9 +123,6 @@ export const authAPI = {
     });
   },
 
-  /**
-   * Check authentication status
-   */
   checkAuth: async () => {
     return apiRequest<{
       success: boolean;
@@ -160,18 +143,12 @@ export const authAPI = {
     });
   },
 
-  /**
-   * Logout user
-   */
   logout: async () => {
     return apiRequest<{ success: boolean; message: string }>('/auth/logout', {
       method: 'POST',
     });
   },
 
-  /**
-   * Verify email with token
-   */
   verifyEmail: async (token: string) => {
     return apiRequest<{
       success: boolean;
@@ -182,9 +159,6 @@ export const authAPI = {
     });
   },
 
-  /**
-   * Resend verification email
-   */
   resendVerification: async (email: string) => {
     return apiRequest<{
       success: boolean;
@@ -195,11 +169,7 @@ export const authAPI = {
     });
   },
 
-  /**
-   * Verify phone auth and login/register (Pakistan +92 only).
-   * Production: send idToken from Firebase. Dev (dummy): send dummyPhone + dummyCode when enabled.
-   */
-  verifyPhone: async (payload: { idToken?: string; dummyPhone?: string; dummyCode?: string }) => {
+  verifyPhone: async (payload: { intent: 'signup' | 'login'; idToken: string }) => {
     return apiRequest<{
       success: boolean;
       message: string;
@@ -209,6 +179,7 @@ export const authAPI = {
           name?: string;
           email?: string;
           phone?: string;
+          avatar?: string;
           authMethod: string;
           isEmailVerified?: boolean;
         };
@@ -220,7 +191,6 @@ export const authAPI = {
   },
 };
 
-/** Customer profile from API (GET/PUT /api/customers/me) */
 export interface CustomerProfileResponse {
   _id: string;
   name?: string;
@@ -241,22 +211,19 @@ export interface CustomerProfileResponse {
   [key: string]: unknown;
 }
 
-/** Resolve avatar URL (relative API path to full URL for display). */
 export function getAvatarUrl(avatar: string | undefined): string | undefined {
   if (!avatar) return undefined;
   if (avatar.startsWith('http')) return avatar;
-  const base = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
+  const base = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
   return `${base}${avatar.startsWith('/') ? '' : '/'}${avatar}`;
 }
 
 export const customersAPI = {
-  /** Get current customer profile (personal info + body measurements). Requires auth. */
   getMe: () =>
     apiRequest<{ success: boolean; data: CustomerProfileResponse }>('/customers/me', {
       method: 'GET',
     }),
 
-  /** Update current customer profile (name, email, avatar URL, phone = countryCode + rest, measurements). */
   updateMe: (body: {
     name?: string;
     email?: string;
@@ -278,7 +245,6 @@ export const customersAPI = {
       data: body,
     }),
 
-  /** Upload avatar image (multipart, max 10MB). Field name: avatar. */
   uploadAvatar: async (file: File) => {
     const formData = new FormData();
     formData.append('avatar', file);
@@ -299,9 +265,6 @@ export const customersAPI = {
   },
 };
 
-/**
- * Public categories (landing / shop). Uses VITE_API_URL from .env.
- */
 export interface CategoryPublic {
   id: string;
   name: string;
@@ -320,9 +283,6 @@ export const categoriesAPI = {
     }),
 };
 
-/**
- * Product from API (public endpoints).
- */
 export interface ProductPublic {
   id: string;
   name: string;
@@ -335,15 +295,12 @@ export interface ProductPublic {
   features: string[];
   rating: number;
   reviewCount: number;
-  isCustomizable: boolean;
+  isCustomizable?: boolean;
   tags: string[];
   createdAt?: string;
   updatedAt?: string;
 }
 
-/**
- * Map API product to frontend Product type.
- */
 export function apiProductToProduct(p: ProductPublic): import('@/lib/types').Product {
   const category =
     typeof p.categoryId === 'object' && p.categoryId !== null && 'slug' in p.categoryId
@@ -359,37 +316,47 @@ export function apiProductToProduct(p: ProductPublic): import('@/lib/types').Pro
     image: p.mainImageUrl,
     images: p.imageUrls,
     features: p.features,
+    tags,
     inStock: true,
     rating: p.rating ?? 0,
     reviews: p.reviewCount ?? 0,
-    isCustomizable: p.isCustomizable ?? false,
     isTrending: tags.some((t) => /trending/i.test(t)),
     isNew: tags.some((t) => /new/i.test(t)),
   };
 }
 
 export const productsAPI = {
-  /** Featured products for landing (4: at least 1 tagged + latest). */
   getFeatured: () =>
     apiRequest<{ success: boolean; data: ProductPublic[] }>('/products/featured', {
       method: 'GET',
     }),
 
-  /** All products (public). Optional categoryId or categorySlug. */
   getList: (params?: { categoryId?: string; categorySlug?: string }) =>
     apiRequest<{ success: boolean; data: ProductPublic[] }>('/products/public', {
       method: 'GET',
       params: params ?? {},
     }),
 
-  /** Single product by ID (public). */
   getById: (id: string) =>
     apiRequest<{ success: boolean; data: ProductPublic }>(`/products/public/${id}`, {
       method: 'GET',
     }),
 };
 
-/** Cart item from API (server-calculated prices). */
+export interface StoreShippingData {
+  shippingRate: number;
+  freeShippingMinSubtotal: number;
+}
+
+export function computeShippingFromStore(subtotal: number, cfg: StoreShippingData): number {
+  return subtotal >= cfg.freeShippingMinSubtotal ? 0 : cfg.shippingRate;
+}
+
+export const storeAPI = {
+  getShipping: () =>
+    apiRequest<{ success: boolean; data: StoreShippingData }>('/store/shipping', { method: 'GET' }),
+};
+
 export interface CartItemResponse {
   id: string;
   productId: string;
@@ -401,7 +368,6 @@ export interface CartItemResponse {
   lineTotal: number;
 }
 
-/** Cart API response (totals calculated at server). */
 export interface CartResponse {
   items: CartItemResponse[];
   subtotal: number;
@@ -409,7 +375,6 @@ export interface CartResponse {
   total: number;
 }
 
-/** Map API cart to store CartItem[] and totals. */
 export function cartResponseToState(
   data: CartResponse
 ): { cart: import('@/lib/types').CartItem[]; totals: { subtotal: number; shipping: number; total: number } } {
@@ -447,7 +412,6 @@ export const cartAPI = {
   get: () =>
     apiRequest<{ success: boolean; data: CartResponse }>('/cart', { method: 'GET' }),
 
-  /** Replace entire cart (e.g. pass [] to clear). */
   updateMine: (items: CartUpdateItemBody[]) =>
     apiRequest<{ success: boolean; data: CartResponse }>('/cart', {
       method: 'PUT',
@@ -472,7 +436,6 @@ export const cartAPI = {
     }),
 };
 
-/** Order line item from API */
 export interface OrderLineItemResponse {
   productId: string;
   name: string;
@@ -481,11 +444,10 @@ export interface OrderLineItemResponse {
   subtotal: number;
 }
 
-/** Order from API (customer orders) */
 export interface OrderResponse {
   _id: string;
-  orderNumber?: string; // Server-generated display ID (e.g. ORD-XXXXXXXXXX)
-  userId: string;
+  orderNumber?: string;
+  userId?: string;
   status: string;
   lineItems: OrderLineItemResponse[];
   subtotal: number;
@@ -494,18 +456,17 @@ export interface OrderResponse {
   total: number;
   currency?: string;
   transactionIds?: string[];
+  shippingAddress?: ShippingAddressPayload;
   createdAt: string;
   updatedAt: string;
 }
 
-/** Shipping snapshot for order create */
 export interface ShippingAddressPayload {
   street?: string;
   city?: string;
-  state?: string;
+  province?: string;
   zipCode?: string;
   zip?: string;
-  country?: string;
   label?: string;
   firstName?: string;
   lastName?: string;
@@ -546,11 +507,12 @@ export const ordersAPI = {
     apiRequest<{ success: boolean; data: OrderResponse }>(`/orders/me/${id}`, {
       method: 'GET',
     }),
-};
 
-// ---------------------------------------------------------------------------
-// Addresses API (customer auth)
-// ---------------------------------------------------------------------------
+  getPublic: (id: string) =>
+    apiRequest<{ success: boolean; data: OrderResponse }>(`/orders/public/${id}`, {
+      method: 'GET',
+    }),
+};
 
 export interface AddressResponse {
   _id: string;
@@ -558,9 +520,8 @@ export interface AddressResponse {
   label: string;
   street: string;
   city: string;
-  state: string;
+  province: string;
   zipCode: string;
-  country: string;
   isDefault: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -572,13 +533,13 @@ export const addressesAPI = {
       method: 'GET',
     }),
 
-  create: (body: { label?: string; street: string; city: string; state?: string; zipCode?: string; country?: string; isDefault?: boolean }) =>
+  create: (body: { label?: string; street: string; city: string; province?: string; zipCode?: string; isDefault?: boolean }) =>
     apiRequest<{ success: boolean; data: AddressResponse }>('/addresses', {
       method: 'POST',
       data: body,
     }),
 
-  update: (id: string, body: { label?: string; street?: string; city?: string; state?: string; zipCode?: string; country?: string; isDefault?: boolean }) =>
+  update: (id: string, body: { label?: string; street?: string; city?: string; province?: string; zipCode?: string; isDefault?: boolean }) =>
     apiRequest<{ success: boolean; data: AddressResponse }>(`/addresses/${id}`, {
       method: 'PATCH',
       data: body,
@@ -593,40 +554,4 @@ export const addressesAPI = {
     apiRequest<{ success: boolean; data: AddressResponse }>(`/addresses/${id}/default`, {
       method: 'PATCH',
     }),
-};
-
-// ---------------------------------------------------------------------------
-// Admin API (requires admin auth; returns 403 when not admin)
-// ---------------------------------------------------------------------------
-
-export interface AdminStats {
-  totalOrders: number;
-  totalRevenue: number;
-  ordersByStatus: Record<string, number>;
-  customerCount: number;
-  productCount: number;
-  categoryCount: number;
-  lowStockCount: number;
-  recentOrders: Array<{ _id: string; userId: unknown; status: string; total: number; createdAt: string }>;
-  lowStockProducts: Array<{ _id: string; name: string; slug: string; stockQuantity: number; lowStockThreshold: number }>;
-}
-
-export const adminAPI = {
-  getStats: (params?: { startDate?: string; endDate?: string }) =>
-    apiRequest<{ success: boolean; data: AdminStats }>('/reports', {
-      method: 'GET',
-      params: params ?? {},
-    }),
-
-  listOrders: (params?: { page?: number; limit?: number; userId?: string }) =>
-    apiRequest<{ success: boolean; data: { items: unknown[]; total: number; page: number; limit: number; totalPages: number } }>(
-      '/orders',
-      { method: 'GET', params: params ?? {} }
-    ),
-
-  listCustomers: (params?: { page?: number; limit?: number; status?: string; search?: string }) =>
-    apiRequest<{ success: boolean; data: { items: unknown[]; total: number; page: number; limit: number; totalPages: number } }>(
-      '/customers',
-      { method: 'GET', params: params ?? {} }
-    ),
 };

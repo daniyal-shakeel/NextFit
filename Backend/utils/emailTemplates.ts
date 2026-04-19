@@ -1,15 +1,9 @@
-/**
- * Email templates for various email types
- */
 
 interface EmailVerificationData {
   name: string;
   verificationUrl: string;
 }
 
-/**
- * Generate email verification email HTML template
- */
 export const getVerificationEmailTemplate = (data: EmailVerificationData): string => {
   return `
 <!DOCTYPE html>
@@ -56,9 +50,6 @@ export const getVerificationEmailTemplate = (data: EmailVerificationData): strin
   `.trim();
 };
 
-/**
- * Generate plain text version of verification email
- */
 export const getVerificationEmailText = (data: EmailVerificationData): string => {
   return `
 Hi ${data.name},

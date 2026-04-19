@@ -9,7 +9,56 @@ function getUserId(req: Request): string | null {
   return auth?.id && auth.authMethod !== 'admin' ? auth.id : null;
 }
 
-/** List my addresses */
+type AddressBody = {
+  label?: string;
+  street?: string;
+  city?: string;
+  province?: string;
+  state?: string;
+  zipCode?: string;
+  isDefault?: boolean;
+};
+
+function provinceFromBody(body: AddressBody): string {
+  if (typeof body.province === 'string') return body.province.trim();
+  if (typeof body.state === 'string') return body.state.trim();
+  return '';
+}
+
+/** Accepts lean docs, toObject() output, or other plain shapes without unsafe casts to Record */
+type AddressOutInput = {
+  _id?: unknown;
+  userId?: unknown;
+  label?: unknown;
+  street?: unknown;
+  city?: unknown;
+  province?: unknown;
+  state?: unknown;
+  zipCode?: unknown;
+  isDefault?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+function normalizeAddressOut(raw: AddressOutInput) {
+  const province =
+    (typeof raw.province === 'string' && raw.province) ||
+    (typeof raw.state === 'string' ? raw.state : '') ||
+    '';
+  return {
+    _id: raw._id,
+    userId: raw.userId,
+    label: raw.label ?? '',
+    street: raw.street ?? '',
+    city: raw.city ?? '',
+    province,
+    zipCode: raw.zipCode ?? '',
+    isDefault: Boolean(raw.isDefault),
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+  };
+}
+
 export const listMine = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
@@ -19,7 +68,8 @@ export const listMine = async (req: Request, res: Response): Promise<Response> =
     const items = await Address.find({ userId: new mongoose.Types.ObjectId(userId) })
       .sort({ isDefault: -1, createdAt: -1 })
       .lean();
-    return res.status(HTTP_STATUS.OK).json({ success: true, data: { items } });
+    const normalized = items.map((doc) => normalizeAddressOut(doc));
+    return res.status(HTTP_STATUS.OK).json({ success: true, data: { items: normalized } });
   } catch (e) {
     console.error('Address listMine error:', e);
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -29,14 +79,13 @@ export const listMine = async (req: Request, res: Response): Promise<Response> =
   }
 };
 
-/** Create address */
 export const create = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
     if (!userId || !mongoose.isValidObjectId(userId)) {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({ success: false, message: 'Unauthorized' });
     }
-    const body = req.body as { label?: string; street?: string; city?: string; state?: string; zipCode?: string; country?: string; isDefault?: boolean };
+    const body = req.body as AddressBody;
     const street = typeof body.street === 'string' ? body.street.trim() : '';
     const city = typeof body.city === 'string' ? body.city.trim() : '';
     if (!street || !city) {
@@ -57,12 +106,13 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       label: typeof body.label === 'string' ? body.label.trim() : '',
       street,
       city,
-      state: typeof body.state === 'string' ? body.state.trim() : '',
+      province: provinceFromBody(body),
       zipCode: typeof body.zipCode === 'string' ? body.zipCode.trim() : '',
-      country: typeof body.country === 'string' ? body.country.trim() : '',
       isDefault,
     });
-    return res.status(HTTP_STATUS.CREATED).json({ success: true, data: address });
+    return res
+      .status(HTTP_STATUS.CREATED)
+      .json({ success: true, data: normalizeAddressOut(address.toObject()) });
   } catch (e) {
     console.error('Address create error:', e);
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -72,7 +122,6 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   }
 };
 
-/** Update address */
 export const update = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
@@ -84,13 +133,14 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     if (!address) {
       return res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, message: 'Address not found' });
     }
-    const body = req.body as { label?: string; street?: string; city?: string; state?: string; zipCode?: string; country?: string; isDefault?: boolean };
+    const body = req.body as AddressBody;
     if (typeof body.street === 'string') address.street = body.street.trim();
     if (typeof body.city === 'string') address.city = body.city.trim();
     if (typeof body.label === 'string') address.label = body.label.trim();
-    if (typeof body.state === 'string') address.state = body.state.trim();
+    if (typeof body.province === 'string' || typeof body.state === 'string') {
+      address.province = provinceFromBody(body);
+    }
     if (typeof body.zipCode === 'string') address.zipCode = body.zipCode.trim();
-    if (typeof body.country === 'string') address.country = body.country.trim();
     if (typeof body.isDefault === 'boolean') {
       if (body.isDefault) {
         await Address.updateMany(
@@ -103,7 +153,9 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       }
     }
     await address.save();
-    return res.status(HTTP_STATUS.OK).json({ success: true, data: address });
+    return res
+      .status(HTTP_STATUS.OK)
+      .json({ success: true, data: normalizeAddressOut(address.toObject()) });
   } catch (e) {
     console.error('Address update error:', e);
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -113,7 +165,6 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   }
 };
 
-/** Delete address */
 export const remove = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
@@ -135,7 +186,6 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   }
 };
 
-/** Set address as default */
 export const setDefault = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
@@ -153,7 +203,9 @@ export const setDefault = async (req: Request, res: Response): Promise<Response>
     );
     address.isDefault = true;
     await address.save();
-    return res.status(HTTP_STATUS.OK).json({ success: true, data: address });
+    return res
+      .status(HTTP_STATUS.OK)
+      .json({ success: true, data: normalizeAddressOut(address.toObject()) });
   } catch (e) {
     console.error('Address setDefault error:', e);
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({

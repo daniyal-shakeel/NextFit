@@ -1,6 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
-/** One doc per user; entries capped in app (e.g. last 50). Referenced for heavy read/write. */
 export interface IRecentlyViewedEntry {
   productId: mongoose.Types.ObjectId;
   viewedAt: Date;

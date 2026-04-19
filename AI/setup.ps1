@@ -1,4 +1,4 @@
-# NextFit AI Try-On Setup (Windows)
+
 $ErrorActionPreference = "Stop"
 
 if ($MyInvocation.ScriptName -like "*tempCodeRunnerFile*") {
@@ -9,10 +9,8 @@ if ($MyInvocation.ScriptName -like "*tempCodeRunnerFile*") {
 
 Write-Host '=== NextFit AI Try-On Setup ===' -ForegroundColor Cyan
 
-# Ensure script runs from its own directory (so relative paths work)
-Set-Location $PSScriptRoot
-
 # Check Python 3.10
+Set-Location $PSScriptRoot
 try {
     $py310 = py -3.10 -c 'import sys; print(sys.version)' 2>$null
     if (-not $py310) { throw 'Python 3.10 not found' }
@@ -25,7 +23,6 @@ try {
 
 $VENV_DIR = Join-Path $PSScriptRoot "venv"
 
-# Only create venv if it does not already exist
 if (Test-Path $VENV_DIR) {
     Write-Host 'Virtual environment already exists - skipping creation' -ForegroundColor Yellow
 } else {
@@ -33,25 +30,21 @@ if (Test-Path $VENV_DIR) {
     py -3.10 -m venv $VENV_DIR
 }
 
-# Activate venv and install
 & "$VENV_DIR\Scripts\Activate.ps1"
 Write-Host "Virtual environment active: $env:VIRTUAL_ENV"
 
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt --upgrade
 
-# Clone CatVTON repo (required)
 if (-not (Test-Path "CatVTON")) {
     Write-Host 'Cloning CatVTON repo...'
     git clone https://github.com/Zheng-Chong/CatVTON.git
 }
 
-# Install CatVTON requirements (ensures all deps for cloned repo)
 if (Test-Path "CatVTON\requirements.txt") {
     python -m pip install -r CatVTON\requirements.txt
 }
 
-# Create .env if not exists
 if (-not (Test-Path ".env")) {
     Copy-Item .env.example .env
     Write-Host '.env created from template - edit CORS_ORIGIN if needed'
@@ -59,7 +52,6 @@ if (-not (Test-Path ".env")) {
     Write-Host '.env already exists'
 }
 
-# Model cache dir
 New-Item -ItemType Directory -Force -Path models | Out-Null
 
 Write-Host ''

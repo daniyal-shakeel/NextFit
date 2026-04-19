@@ -2,50 +2,59 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ShoppingCart, 
-  Search, 
   User, 
-  Bell, 
   Menu, 
   X,
-  Sparkles,
   Shirt
 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { useStore } from '@/store/useStore';
-import { useFeatureConfig } from '@/lib/featureConfig';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 const navLinks = [
-  { name: 'Shop', path: '/shop', comingSoon: false },
-  { name: 'Customize', path: '/customize', comingSoon: true },
-  { name: 'Virtual Try-On', path: '/virtual-try-on', comingSoon: false },
-  { name: 'AI Assistant', path: '/assistant', comingSoon: true },
-  { name: 'Track Order', path: '/account', comingSoon: false },
+  { name: 'Home', path: '/' },
+  { name: 'Shirts', path: '/shop?category=shirts' },
+  { name: 'Pants', path: '/shop?category=pants' },
+  { name: 'Watches', path: '/shop?category=watches' },
+  { name: 'Glasses', path: '/shop?category=glasses' },
+  { name: 'Virtual Try-On', path: '/virtual-try-on' },
 ];
+
+function navLinkIsActive(pathname: string, search: string, linkPath: string) {
+  const [path, query] = linkPath.split('?');
+  const tab = new URLSearchParams(search).get('tab');
+  if (path === '/') {
+    return pathname === '/';
+  }
+  if (linkPath === '/account') {
+    if (pathname !== '/account') return false;
+    return tab !== 'orders';
+  }
+  if (linkPath === '/account?tab=orders') {
+    if (pathname !== '/account') return false;
+    return tab === 'orders';
+  }
+  if (pathname !== path) return false;
+  if (!query) return true;
+  const want = new URLSearchParams(query);
+  const have = new URLSearchParams(search);
+  for (const [k, v] of want.entries()) {
+    if (have.get(k) !== v) return false;
+  }
+  return true;
+}
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
-  const { cart, notifications, isAuthenticated } = useStore();
-  const { comingSoonEnabled } = useFeatureConfig();
-  
-  const unreadNotifications = notifications.filter((n) => !n.read).length;
+  const { cart, isAuthenticated } = useStore();
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
-
-  const showComingSoon = (link: (typeof navLinks)[0]) =>
-    link.comingSoon && comingSoonEnabled;
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-xl border-b border-border">
       <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
-        {/* Logo */}
         <Link to="/" className="flex items-center gap-2 group">
           <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
             <Shirt className="w-6 h-6 text-primary-foreground" />
@@ -55,25 +64,19 @@ export function Navbar() {
           </span>
         </Link>
 
-        {/* Desktop Navigation */}
-        <div className="hidden md:flex items-center gap-8">
+        <div className="hidden md:flex flex-1 min-w-0 items-center justify-center gap-3 lg:gap-5 px-2">
           {navLinks.map((link) => (
             <Link
               key={link.path}
               to={link.path}
-              className={`relative font-medium transition-colors flex items-center gap-1.5 ${
-                location.pathname === link.path
+              className={`relative text-sm lg:text-[15px] font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                navLinkIsActive(location.pathname, location.search, link.path)
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {link.name}
-              {showComingSoon(link) && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
-                  Coming Soon
-                </Badge>
-              )}
-              {location.pathname === link.path && (
+              {navLinkIsActive(location.pathname, location.search, link.path) && (
                 <motion.div
                   layoutId="navbar-indicator"
                   className="absolute -bottom-1 left-0 right-0 h-0.5 bg-primary rounded-full"
@@ -83,34 +86,8 @@ export function Navbar() {
           ))}
         </div>
 
-        {/* Desktop Actions */}
         <div className="hidden md:flex items-center gap-4">
-          <Link to="/shop">
-            <Button variant="ghost" size="icon">
-              <Search className="h-5 w-5" />
-            </Button>
-          </Link>
-          
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5" />
-                {unreadNotifications > 0 && (
-                  <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
-                    {unreadNotifications}
-                  </Badge>
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              {notifications.slice(0, 5).map((notification) => (
-                <DropdownMenuItem key={notification.id} className="flex flex-col items-start p-3">
-                  <span className="font-medium">{notification.title}</span>
-                  <span className="text-sm text-muted-foreground">{notification.message}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ThemeToggle />
 
           <Link to="/cart" className="relative">
             <Button variant="ghost" size="icon">
@@ -136,7 +113,6 @@ export function Navbar() {
           )}
         </div>
 
-        {/* Mobile Menu Button */}
         <Button
           variant="ghost"
           size="icon"
@@ -147,7 +123,6 @@ export function Navbar() {
         </Button>
       </nav>
 
-      {/* Mobile Menu */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -163,20 +138,16 @@ export function Navbar() {
                   to={link.path}
                   onClick={() => setIsOpen(false)}
                   className={`font-medium py-2 flex items-center gap-2 ${
-                    location.pathname === link.path
+                    navLinkIsActive(location.pathname, location.search, link.path)
                       ? 'text-primary'
                       : 'text-muted-foreground'
                   }`}
                 >
                   {link.name}
-                  {showComingSoon(link) && (
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
-                      Coming Soon
-                    </Badge>
-                  )}
                 </Link>
               ))}
               <div className="flex items-center gap-4 pt-4 border-t border-border">
+                <ThemeToggle />
                 <Link to="/cart" onClick={() => setIsOpen(false)}>
                   <Button variant="ghost" size="icon" className="relative">
                     <ShoppingCart className="h-5 w-5" />

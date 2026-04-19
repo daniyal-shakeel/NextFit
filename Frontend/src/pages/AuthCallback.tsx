@@ -2,12 +2,9 @@ import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { authAPI, customersAPI } from '@/lib/api';
+import { mapApiMeasurements } from '@/lib/mapApiMeasurements';
 import { useStore } from '@/store/useStore';
 
-/**
- * OAuth callback page
- * Handles redirects from Google OAuth and other OAuth providers
- */
 export default function AuthCallback() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -20,10 +17,8 @@ export default function AuthCallback() {
 
       if (success === 'true') {
         try {
-          // Small delay to ensure cookies are set after redirect
           await new Promise(resolve => setTimeout(resolve, 100));
           
-          // Check authentication status after OAuth
           const response = await authAPI.checkAuth();
           if (response.success && response.data.user) {
             const user = response.data.user;
@@ -37,7 +32,7 @@ export default function AuthCallback() {
                   email: d.email ?? user.email ?? '',
                   phone: d.phone,
                   avatar: d.avatar ?? user.avatar,
-                  measurements: d.measurements,
+                  measurements: mapApiMeasurements(d.measurements),
                 });
               } else {
                 login({
@@ -72,7 +67,6 @@ export default function AuthCallback() {
         toast.error(decodeURIComponent(error));
         navigate('/auth');
       } else {
-        // No params, redirect to auth page
         navigate('/auth');
       }
     };

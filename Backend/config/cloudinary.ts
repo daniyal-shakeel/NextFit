@@ -1,12 +1,3 @@
-/**
- * Cloudinary configuration for image uploads (e.g. avatars).
- * Set in .env:
- *   CLOUDINARY_CLOUD_NAME=your_cloud_name
- *   CLOUDINARY_API_KEY=your_api_key
- *   CLOUDINARY_API_SECRET=your_api_secret
- *
- * Config is read lazily (when first upload runs) so .env is loaded before use.
- */
 import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
 
 const AVATAR_FOLDER = 'nextfit/avatars';
@@ -36,17 +27,10 @@ function ensureConfig(): boolean {
   return false;
 }
 
-/** True if CLOUDINARY_* env vars are set (checked when first needed). */
 export function isCloudinaryConfigured(): boolean {
   return getConfig() !== null;
 }
 
-/**
- * Upload a buffer to Cloudinary and return the secure URL.
- * @param buffer - File buffer (e.g. from multer memory storage)
- * @param folder - Cloudinary folder (default: nextfit/avatars)
- * @returns secure_url or null if Cloudinary is not configured or upload fails
- */
 export async function uploadToCloudinary(
   buffer: Buffer,
   folder: string = AVATAR_FOLDER

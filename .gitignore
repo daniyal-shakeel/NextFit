@@ -30,6 +30,12 @@ out/
 .vite/
 **/.vite/
 
+# TypeScript incremental build cache (any package)
+**/*.tsbuildinfo
+
+# Vite: esbuild-bundled config cache (e.g. Frontend/vite.config.ts.timestamp-*.mjs)
+**/vite.config.ts.timestamp-*.mjs
+
 # ===============================
 # Environment Files (CRITICAL)
 # ===============================
@@ -103,6 +109,9 @@ temp/
 # Project-specific (NextFit)
 # ===============================
 
+# Local try-on debug request dumps (AI/main.py)
+AI/requests/
+
 # If you generate uploads locally
 uploads/
 **/uploads/
@@ -117,3 +126,4 @@ uploads/
 # Docs folder if you want it ignored (you included it)
 docs/
 .cursor/
+nodemon.json

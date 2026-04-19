@@ -14,12 +14,10 @@ import { PERMISSIONS } from '../constants/permissions.js';
 
 const productRouter = express.Router();
 
-// Public routes (no auth) – must be before /:id
 productRouter.get('/featured', getFeaturedProducts);
 productRouter.get('/public', getProductsPublic);
 productRouter.get('/public/:id', getProductPublic);
 
-// Protected routes
 productRouter.get('/', requirePermission(PERMISSIONS.PRODUCT_READ), getProducts);
 productRouter.get('/:id', requirePermission(PERMISSIONS.PRODUCT_READ), getProduct);
 productRouter.post('/', requirePermission(PERMISSIONS.PRODUCT_CREATE), addProduct);

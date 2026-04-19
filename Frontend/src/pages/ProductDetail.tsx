@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -9,7 +10,6 @@ import {
   Truck,
   Shield,
   RotateCcw,
-  Palette,
   ChevronLeft,
   ChevronRight,
   Check,
@@ -28,18 +28,22 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { productsAPI, apiProductToProduct } from '@/lib/api';
+import { frontendProductsListKey } from '@/lib/queryClient';
 import type { Product } from '@/lib/types';
 import { useStore } from '@/store/useStore';
 import { toast } from 'sonner';
 import { ProductCard } from '@/components/product/ProductCard';
 import { CURRENCY } from '@/lib/constants';
 
+function isShirtCategory(category: string): boolean {
+  const c = category.trim().toLowerCase();
+  if (c === 'shirts' || c === 'shirt') return true;
+  if (c.includes('shorts')) return false;
+  return c.includes('shirt') || c.includes('t-shirt');
+}
+
 export default function ProductDetail() {
   const { id } = useParams();
-  const [product, setProduct] = useState<Product | null>(null);
-  const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedSize, setSelectedSize] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -62,36 +66,47 @@ export default function ProductDetail() {
   );
   const handleGalleryMouseLeave = useCallback(() => setZoomOrigin(null), []);
 
+  const productQuery = useQuery({
+    queryKey: ['frontend', 'products', 'detail', id ?? ''],
+    queryFn: async () => {
+      const res = await productsAPI.getById(id!);
+      return apiProductToProduct(res.data);
+    },
+    enabled: Boolean(id),
+  });
+
+  const listForRelatedQuery = useQuery({
+    queryKey: frontendProductsListKey('all'),
+    queryFn: () =>
+      productsAPI.getList({}).then((res) => (res.data ?? []).map(apiProductToProduct)),
+  });
+
+  const product = productQuery.data ?? null;
+  const relatedProducts = useMemo(() => {
+    if (!product || !id) return [];
+    const all = listForRelatedQuery.data ?? [];
+    return all.filter((x) => x.category === product.category && x.id !== id).slice(0, 4);
+  }, [product, listForRelatedQuery.data, id]);
+
+  const loading = productQuery.isPending;
+  const error =
+    productQuery.error instanceof Error
+      ? productQuery.error.message
+      : productQuery.error
+        ? String(productQuery.error)
+        : null;
+
+  useEffect(() => {
+    if (!product) return;
+    setSelectedSize(product.sizes?.[0] ?? '');
+    setSelectedColor(product.colors?.[0] ?? '');
+    setCurrentImageIndex(0);
+  }, [product]);
+
   const mainImage = product?.image ?? '';
   const otherImages = (product?.images ?? []).filter((u) => u && u !== mainImage);
   const allImages = mainImage ? (otherImages.length > 0 ? [mainImage, ...otherImages] : [mainImage]) : [];
   const currentSrc = allImages[currentImageIndex] ?? mainImage;
-
-  useEffect(() => {
-    if (!id) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    productsAPI
-      .getById(id)
-      .then((res) => {
-        const p = apiProductToProduct(res.data);
-        setProduct(p);
-        setSelectedSize(p.sizes?.[0] ?? '');
-        setSelectedColor(p.colors?.[0] ?? '');
-        setCurrentImageIndex(0);
-        return Promise.all([Promise.resolve(p), productsAPI.getList({})]);
-      })
-      .then(([p, listRes]) => {
-        const all = (listRes.data ?? []).map(apiProductToProduct);
-        const related = all.filter((x) => x.category === p.category && x.id !== id).slice(0, 4);
-        setRelatedProducts(related);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load product'))
-      .finally(() => setLoading(false));
-  }, [id]);
 
   if (loading) {
     return (
@@ -115,7 +130,7 @@ export default function ProductDetail() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">{error ?? 'Product not found'}</h1>
+          <h1 className="text-2xl font-bold mb-4 text-foreground">{error ?? 'Product not found'}</h1>
           <Link to="/shop">
             <Button>Back to Shop</Button>
           </Link>
@@ -147,7 +162,6 @@ export default function ProductDetail() {
   return (
     <div className="min-h-screen py-8">
       <div className="container mx-auto px-4">
-        {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
           <Link to="/" className="hover:text-primary">Home</Link>
           <span>/</span>
@@ -161,13 +175,11 @@ export default function ProductDetail() {
         </nav>
 
         <div className="grid lg:grid-cols-2 gap-12">
-          {/* Image Gallery: main + thumbnails grid + hover zoom */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             className="space-y-3 sm:space-y-4"
           >
-            {/* Main image with hover zoom (pixel-perfect magnify) */}
             <div
               ref={galleryRef}
               className="relative aspect-square w-full rounded-2xl overflow-hidden bg-card cursor-crosshair select-none touch-none"
@@ -196,15 +208,12 @@ export default function ProductDetail() {
               {zoomOrigin !== null && (
                 <div className="absolute inset-0 pointer-events-none border-2 border-primary/30 rounded-2xl" aria-hidden />
               )}
-              {/* Badges */}
               <div className="absolute top-3 left-3 sm:top-4 sm:left-4 flex flex-col gap-2 z-10">
                 {product.isNew && <Badge className="text-xs">New Arrival</Badge>}
                 {product.isTrending && <Badge variant="secondary" className="text-xs">Trending</Badge>}
               </div>
-              {/* Optional: zoom hint on first hover */}
             </div>
 
-            {/* Thumbnail grid: click to set as primary */}
             {allImages.length > 1 && (
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 sm:gap-3">
                 {allImages.map((url, i) => (
@@ -232,7 +241,6 @@ export default function ProductDetail() {
             )}
           </motion.div>
 
-          {/* Product Info */}
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -242,7 +250,7 @@ export default function ProductDetail() {
               <p className="text-sm text-muted-foreground uppercase tracking-wider mb-2">
                 {product.category}
               </p>
-              <h1 className="text-3xl md:text-4xl font-serif font-bold mb-4">
+              <h1 className="text-3xl md:text-4xl font-serif font-bold mb-4 text-foreground">
                 {product.name}
               </h1>
               
@@ -273,7 +281,6 @@ export default function ProductDetail() {
               {product.description}
             </p>
 
-            {/* Color Selection */}
             {product.colors && (
               <div className="space-y-3">
                 <label className="font-medium">Color: {selectedColor}</label>
@@ -295,7 +302,6 @@ export default function ProductDetail() {
               </div>
             )}
 
-            {/* Size Selection */}
             {product.sizes && (
               <div className="space-y-3">
                 <label className="font-medium">Size: {selectedSize}</label>
@@ -317,7 +323,6 @@ export default function ProductDetail() {
               </div>
             )}
 
-            {/* Quantity */}
             <div className="space-y-3">
               <label className="font-medium">Quantity</label>
               <div className="flex items-center gap-3">
@@ -337,7 +342,6 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            {/* Actions */}
             <div className="flex gap-4">
               <Button
                 size="lg"
@@ -356,41 +360,32 @@ export default function ProductDetail() {
               </Button>
             </div>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="lg" variant="secondary" className="w-full">
-                  <Camera className="h-5 w-5 mr-2" />
-                  Try on
-                  <ChevronDown className="h-4 w-4 ml-2" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuItem
-                  onClick={() => navigate(`/virtual-try-on?product=${product.id}&mode=image`)}
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Using photo
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => navigate(`/virtual-try-on?product=${product.id}&mode=camera`)}
-                >
-                  <Camera className="h-4 w-4 mr-2" />
-                  Live camera
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {isShirtCategory(product.category) ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="lg" variant="secondary" className="w-full">
+                    <Camera className="h-5 w-5 mr-2" />
+                    Try on
+                    <ChevronDown className="h-4 w-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuItem
+                    onClick={() => navigate(`/virtual-try-on?product=${product.id}&mode=image`)}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Using photo
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => navigate(`/virtual-try-on?product=${product.id}&mode=camera`)}
+                  >
+                    <Camera className="h-4 w-4 mr-2" />
+                    Live camera
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
 
-            {/* Customize Link */}
-            {product.isCustomizable && (
-              <Link to={`/customize?product=${product.id}`}>
-                <Button variant="secondary" size="lg" className="w-full">
-                  <Palette className="h-5 w-5 mr-2" />
-                  Customize This Product
-                </Button>
-              </Link>
-            )}
-
-            {/* Features */}
             <div className="grid grid-cols-3 gap-4 pt-6 border-t border-border">
               <div className="text-center">
                 <Truck className="h-6 w-6 mx-auto mb-2 text-primary" />
@@ -411,7 +406,6 @@ export default function ProductDetail() {
           </motion.div>
         </div>
 
-        {/* Tabs */}
         <div className="mt-16">
           <Tabs defaultValue="description">
             <TabsList className="w-full justify-start border-b border-border bg-transparent rounded-none p-0 h-auto">
@@ -438,16 +432,13 @@ export default function ProductDetail() {
             <TabsContent value="description" className="mt-6">
               <div className="prose prose-sm max-w-none">
                 <p>{product.description}</p>
-                {(product.features && product.features.length > 0) || product.isCustomizable ? (
+                {product.features && product.features.length > 0 ? (
                   <>
                     <h4 className="mt-4 font-semibold">Features</h4>
                     <ul className="list-disc pl-5 space-y-1">
-                      {product.features?.map((f, i) => (
+                      {product.features.map((f, i) => (
                         <li key={i}>{f}</li>
                       ))}
-                      {product.isCustomizable && (
-                        <li>Fully customizable design</li>
-                      )}
                     </ul>
                   </>
                 ) : null}
@@ -503,7 +494,6 @@ export default function ProductDetail() {
           </Tabs>
         </div>
 
-        {/* Related Products */}
         {relatedProducts.length > 0 && (
           <section className="mt-16">
             <h2 className="text-2xl font-serif font-bold mb-6">You might also like</h2>

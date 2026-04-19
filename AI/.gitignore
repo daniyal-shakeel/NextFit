@@ -8,6 +8,8 @@ models/
 
 # Environment secrets
 .env
+.env.local
+.env.production
 
 # Python cache
 __pycache__/
@@ -18,3 +20,4 @@ __pycache__/
 
 # Logs
 *.log
+.env.*

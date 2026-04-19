@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import Address from '../models/Address.js';
+import Order from '../models/Order.js';
 import User, {
   AccountStatus,
   AuthMethod,
@@ -15,7 +17,6 @@ import { uploadToCloudinary } from '../config/cloudinary.js';
 const ADDRESS_LABELS: AddressLabel[] = ['home', 'office', 'other'];
 type AddressLabel = 'home' | 'office' | 'other';
 
-// ---------- Helpers ----------
 function getUserId(req: Request): string | null {
   const auth = req.auth as AuthPayload | undefined;
   return auth?.id && auth.authMethod !== 'admin' ? auth.id : null;
@@ -28,7 +29,6 @@ function sanitizeUserForResponse(user: import('../models/User.js').IUser) {
   return obj;
 }
 
-/** Combined phone for display (countryCode + rest). Handles legacy DB where phone was stored full E.164. */
 function getDisplayPhone(user: { phone?: string; phoneCountryCode?: string }): string | undefined {
   const p = user.phone;
   const cc = user.phoneCountryCode;
@@ -37,7 +37,125 @@ function getDisplayPhone(user: { phone?: string; phoneCountryCode?: string }): s
   return `${cc || ''}${p}`.trim() || undefined;
 }
 
-// ---------- Customer self: GET /api/customers/me ----------
+function shippingDedupKey(a: {
+  street?: string;
+  city?: string;
+  postalCode?: string;
+  label?: string;
+}): string {
+  return [
+    String(a.street ?? '').trim().toLowerCase(),
+    String(a.city ?? '').trim().toLowerCase(),
+    String(a.postalCode ?? '').trim(),
+    String(a.label ?? '').trim().toLowerCase(),
+  ].join('|');
+}
+
+function mergeShippingForAdmin(
+  embedded: IShippingAddress[] | undefined,
+  addressDocs: Array<{
+    _id: unknown;
+    label?: string;
+    street?: string;
+    city?: string;
+    province?: string;
+    zipCode?: string;
+    isDefault?: boolean;
+  }>
+): Array<Record<string, unknown>> {
+  const fromCollection = addressDocs.map((a) => ({
+    _id: String(a._id),
+    source: 'address_book' as const,
+    label: (a.label && String(a.label).trim()) || undefined,
+    street: a.street ?? '',
+    city: a.city ?? '',
+    province: a.province ?? '',
+    postalCode: a.zipCode ?? '',
+    isDefault: Boolean(a.isDefault),
+  }));
+
+  const fromEmbedded = (embedded ?? []).map((a) => ({
+    source: 'profile_embedded' as const,
+    label:
+      typeof a.label === 'string'
+        ? a.label
+        : a.label != null
+          ? String(a.label)
+          : undefined,
+    street: a.street ?? '',
+    city: a.city ?? '',
+    province: a.province ?? '',
+    postalCode: a.postalCode ?? '',
+    deliveryInstructions: a.deliveryInstructions,
+    isDefault: Boolean(a.isDefault),
+  }));
+
+  if (fromCollection.length === 0) return fromEmbedded;
+  if (fromEmbedded.length === 0) return fromCollection;
+
+  const keys = new Set(fromCollection.map((r) => shippingDedupKey(r)));
+  const extra = fromEmbedded.filter((e) => !keys.has(shippingDedupKey(e)));
+  return [...fromCollection, ...extra];
+}
+
+const ORDER_STATUSES_EXCLUDED_FROM_SPEND = new Set([
+  'cancelled',
+  'refunded',
+  'partially_refunded',
+]);
+
+const HIGH_PAYING_MIN_SPEND = 25_000;
+const ORDER_STATUSES_PIPELINE = new Set(['pending', 'confirmed', 'processing', 'shipped']);
+
+async function buildCustomerOrderInsights(userId: string) {
+  const oid = new mongoose.Types.ObjectId(userId);
+  const orders = await Order.find({ userId: oid }).select('total status createdAt currency').lean();
+
+  let totalSpent = 0;
+  let revenueOrderCount = 0;
+  let activePipelineCount = 0;
+  let deliveredCount = 0;
+  let lastOrderAt: Date | null = null;
+  let firstOrderAt: Date | null = null;
+  let currency = 'PKR';
+
+  for (const o of orders) {
+    const created = o.createdAt ? new Date(o.createdAt) : null;
+    if (created && !Number.isNaN(created.getTime())) {
+      if (!lastOrderAt || created > lastOrderAt) lastOrderAt = created;
+      if (!firstOrderAt || created < firstOrderAt) firstOrderAt = created;
+    }
+    if (typeof o.currency === 'string' && o.currency.trim()) {
+      currency = o.currency.trim();
+    }
+
+    const st = String(o.status ?? '');
+    if (!ORDER_STATUSES_EXCLUDED_FROM_SPEND.has(st)) {
+      totalSpent += Number(o.total) || 0;
+      revenueOrderCount += 1;
+    }
+    if (ORDER_STATUSES_PIPELINE.has(st)) activePipelineCount += 1;
+    if (st === 'delivered') deliveredCount += 1;
+  }
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  return {
+    orderCount: orders.length,
+    revenueOrderCount,
+    totalSpent: round2(totalSpent),
+    averageOrderValue: revenueOrderCount > 0 ? round2(totalSpent / revenueOrderCount) : 0,
+    lastOrderAt: lastOrderAt?.toISOString() ?? null,
+    firstOrderAt: firstOrderAt?.toISOString() ?? null,
+    currency,
+    activePipelineCount,
+    deliveredCount,
+    cancelledOrRefundedCount: orders.filter((o) =>
+      ORDER_STATUSES_EXCLUDED_FROM_SPEND.has(String(o.status ?? ''))
+    ).length,
+  };
+}
+
 export const getMe = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
@@ -110,7 +228,6 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
-// ---------- Customer self: PUT /api/customers/me ----------
 export const updateMe = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
@@ -151,7 +268,6 @@ export const updateMe = async (req: Request, res: Response): Promise<Response> =
       });
     }
 
-    // Validation helpers
     const nameTrim = typeof body.name === 'string' ? body.name.trim() : '';
     if (body.name !== undefined) {
       if (nameTrim.length === 0) {
@@ -169,7 +285,6 @@ export const updateMe = async (req: Request, res: Response): Promise<Response> =
       user.name = nameTrim;
     }
 
-    // Email: only for email-auth users; validate format and uniqueness
     if (body.email !== undefined && user.authMethod === AuthMethod.EMAIL) {
       const emailRaw = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -201,7 +316,6 @@ export const updateMe = async (req: Request, res: Response): Promise<Response> =
       user.email = emailRaw;
     }
 
-    // Optional email for phone/google users (so the email box can be set and displayed)
     if (body.email !== undefined && (user.authMethod === AuthMethod.PHONE || user.authMethod === AuthMethod.GOOGLE)) {
       const emailRaw = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -266,7 +380,6 @@ export const updateMe = async (req: Request, res: Response): Promise<Response> =
           });
         }
       }
-      // PHONE-auth users must keep a number; only allow clearing for email/google
       const canClear = user.authMethod !== AuthMethod.PHONE;
       if (code && rest.length > 0) {
         user.phoneCountryCode = code;
@@ -305,9 +418,8 @@ export const updateMe = async (req: Request, res: Response): Promise<Response> =
           label,
           street: String(a.street ?? '').trim().slice(0, 200),
           city: String(a.city ?? '').trim().slice(0, 100),
-          state: String(a.state ?? '').trim().slice(0, 100),
+          province: String(a.province ?? a.state ?? '').trim().slice(0, 100),
           postalCode: String(a.postalCode ?? '').trim().slice(0, 20),
-          country: String(a.country ?? '').trim().slice(0, 100),
           deliveryInstructions: String(a.deliveryInstructions ?? '').trim().slice(0, 500),
           isDefault: Boolean(a.isDefault),
         } as IShippingAddress;
@@ -330,9 +442,8 @@ export const updateMe = async (req: Request, res: Response): Promise<Response> =
         user.billingAddress = {
           street: String(b.street ?? '').trim().slice(0, 200),
           city: String(b.city ?? '').trim().slice(0, 100),
-          state: String(b.state ?? '').trim().slice(0, 100),
+          province: String(b.province ?? b.state ?? '').trim().slice(0, 100),
           postalCode: String(b.postalCode ?? '').trim().slice(0, 20),
-          country: String(b.country ?? '').trim().slice(0, 100),
         };
       }
     }
@@ -399,7 +510,6 @@ export const updateMe = async (req: Request, res: Response): Promise<Response> =
   }
 };
 
-// ---------- Customer self: POST /api/customers/me/avatar (multipart, max 10MB) ----------
 export const uploadAvatarHandler = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = getUserId(req);
@@ -482,18 +592,24 @@ export const uploadAvatarHandler = async (req: Request, res: Response): Promise<
   }
 };
 
-// ---------- Admin: GET /api/customers (list) ----------
 export const list = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const page = Math.max(1, parseInt(String(req.query.page), 10) || 1);
-    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit), 10) || 10));
-    const skip = (page - 1) * limit;
-    const status = req.query.status as string | undefined;
+    const limitRaw = req.query.limit;
+    const skipRaw = req.query.skip;
+    const pageRaw = req.query.page;
+    const status = typeof req.query.status === 'string' ? req.query.status.trim() : undefined;
+    const authMethodParam = typeof req.query.authMethod === 'string' ? req.query.authMethod.trim() : '';
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
 
     const filter: Record<string, unknown> = {};
     if (status && ['active', 'suspended', 'deleted'].includes(status)) {
       filter.accountStatus = status;
+    }
+    if (
+      authMethodParam &&
+      (Object.values(AuthMethod) as string[]).includes(authMethodParam)
+    ) {
+      filter.authMethod = authMethodParam;
     }
     if (search) {
       filter.$or = [
@@ -505,29 +621,101 @@ export const list = async (req: Request, res: Response): Promise<Response> => {
       ];
     }
 
-    const [usersRaw, total] = await Promise.all([
-      User.find(filter)
-        .select('-password -otpCode')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      User.countDocuments(filter),
-    ]);
+    let limit: number | undefined;
+    let skip = 0;
+
+    if (limitRaw !== undefined && String(limitRaw) !== '') {
+      const n = Number(limitRaw);
+      if (!Number.isFinite(n) || n < 1 || n > 500) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: 'Invalid limit query (use 1–500)',
+        });
+      }
+      limit = Math.floor(n);
+
+      if (skipRaw !== undefined && String(skipRaw) !== '') {
+        const s = Number(skipRaw);
+        if (!Number.isFinite(s) || s < 0) {
+          return res.status(HTTP_STATUS.BAD_REQUEST).json({
+            success: false,
+            message: 'Invalid skip query',
+          });
+        }
+        skip = Math.floor(s);
+      } else if (pageRaw !== undefined && String(pageRaw) !== '') {
+        const p = Math.max(1, parseInt(String(pageRaw), 10) || 1);
+        skip = (p - 1) * limit;
+      }
+    }
+
+    let query = User.find(filter).select('-password -otpCode').sort({ createdAt: -1 });
+    if (limit !== undefined) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const [usersRaw, total] = await Promise.all([query.lean(), User.countDocuments(filter)]);
     const users = (usersRaw as unknown as Record<string, unknown>[]).map((u) => ({
       ...u,
       phone: getDisplayPhone(u as { phone?: string; phoneCountryCode?: string }),
-    }));
+    })) as Array<Record<string, unknown> & { _id: unknown; phone?: string | undefined }>;
+
+    const excludedStatuses = [...ORDER_STATUSES_EXCLUDED_FROM_SPEND];
+    let items: (typeof users[number] & { highPaying: boolean })[];
+    if (users.length === 0) {
+      items = [];
+    } else {
+      const userObjectIds = users.map((u) => new mongoose.Types.ObjectId(String(u._id)));
+      const spendByUser = await Order.aggregate<{ _id: mongoose.Types.ObjectId; totalSpent: number }>([
+        {
+          $match: {
+            userId: { $in: userObjectIds },
+            status: { $nin: excludedStatuses },
+          },
+        },
+        {
+          $group: {
+            _id: '$userId',
+            totalSpent: { $sum: '$total' },
+          },
+        },
+      ]);
+      const highIds = new Set(
+        spendByUser
+          .filter((r) => (r.totalSpent ?? 0) >= HIGH_PAYING_MIN_SPEND)
+          .map((r) => String(r._id))
+      );
+      items = users.map((u) => ({
+        ...u,
+        highPaying: highIds.has(String(u._id)),
+      }));
+    }
+
+    const page = limit !== undefined ? Math.floor(skip / limit) + 1 : 1;
+    const responseLimit = limit !== undefined ? limit : Math.max(total, 0);
+    const totalPages = limit !== undefined ? Math.ceil(total / limit) : 1;
+
+    const data: {
+      items: typeof items;
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+      hasMore?: boolean;
+    } = {
+      items,
+      total,
+      page,
+      limit: responseLimit,
+      totalPages,
+    };
+    if (limit !== undefined) {
+      data.hasMore = skip + users.length < total;
+    }
 
     return res.status(HTTP_STATUS.OK).json({
       success: true,
-      data: {
-        items: users,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      data,
     });
   } catch (e) {
     console.error('Customer list error:', e);
@@ -538,11 +726,11 @@ export const list = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
-// ---------- Admin: GET /api/customers/:id ----------
 export const getOne = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const id = req.params.id;
-    if (!id || !mongoose.isValidObjectId(id)) {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id || typeof id !== 'string' || !mongoose.isValidObjectId(id)) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json({
         success: false,
         message: 'Invalid customer id',
@@ -557,7 +745,15 @@ export const getOne = async (req: Request, res: Response): Promise<Response> => 
       });
     }
 
+    const addressDocs = await Address.find({ userId: new mongoose.Types.ObjectId(id) })
+      .sort({ isDefault: -1, createdAt: -1 })
+      .lean();
+
     const data = sanitizeUserForResponse(user);
+    const shippingAddresses = mergeShippingForAdmin(user.shippingAddresses, addressDocs);
+    const insights = await buildCustomerOrderInsights(id);
+    const highPaying = insights.totalSpent >= HIGH_PAYING_MIN_SPEND;
+
     return res.status(HTTP_STATUS.OK).json({
       success: true,
       data: {
@@ -565,6 +761,9 @@ export const getOne = async (req: Request, res: Response): Promise<Response> => 
         email: user.authMethod === AuthMethod.GOOGLE ? user.googleEmail : user.email,
         avatar: user.authMethod === AuthMethod.GOOGLE ? user.googleAvatar : user.avatar,
         phone: getDisplayPhone(user),
+        shippingAddresses,
+        insights,
+        highPaying,
       },
     });
   } catch (e) {
@@ -576,7 +775,6 @@ export const getOne = async (req: Request, res: Response): Promise<Response> => 
   }
 };
 
-// ---------- Admin: PATCH /api/customers/:id/status (suspend / unsuspend) ----------
 export const updateStatus = async (req: Request, res: Response): Promise<Response> => {
   try {
     const id = req.params.id;
@@ -626,7 +824,6 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
   }
 };
 
-// ---------- Admin: GET /api/customers/:id/login-activity ----------
 export const getLoginActivity = async (req: Request, res: Response): Promise<Response> => {
   try {
     const rawId = req.params.id;

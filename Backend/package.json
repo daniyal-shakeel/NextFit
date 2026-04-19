@@ -4,11 +4,12 @@
   "description": "",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon --exec tsx app.ts",
-    "server": "nodemon --exec tsx app.ts",
-    "start": "node dist/app.js",
-    "build": "tsc"
+    "dev": "set NODE_ENV=development && nodemon --exec tsx app.ts",
+    "server": "set NODE_ENV=development && nodemon --exec tsx app.ts",
+    "build": "tsc",
+    "start": "set NODE_ENV=production && node dist/app.js",
+    "start:prod": "set NODE_ENV=production && node dist/app.js",
+    "pm2": "set NODE_ENV=production && pm2 start dist/app.js --name backend"
   },
   "keywords": [],
   "author": "",
@@ -22,6 +23,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "firebase-admin": "^13.0.2",
+    "groq-sdk": "^1.1.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.2",
     "multer": "^2.0.2",

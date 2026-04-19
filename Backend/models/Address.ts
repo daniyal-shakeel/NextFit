@@ -5,9 +5,8 @@ export interface IAddress extends Document {
   label: string;
   street: string;
   city: string;
-  state: string;
+  province: string;
   zipCode: string;
-  country: string;
   isDefault: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -24,9 +23,8 @@ const addressSchema = new Schema<IAddress>(
     label: { type: String, trim: true, default: '' },
     street: { type: String, required: true, trim: true },
     city: { type: String, required: true, trim: true },
-    state: { type: String, trim: true, default: '' },
+    province: { type: String, trim: true, default: '' },
     zipCode: { type: String, trim: true, default: '' },
-    country: { type: String, trim: true, default: '' },
     isDefault: { type: Boolean, default: false },
   },
   { timestamps: true }

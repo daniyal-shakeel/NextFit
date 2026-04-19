@@ -3,7 +3,7 @@ export interface Product {
   name: string;
   description: string;
   price: number;
-  category: string; // slug or name from API (e.g. 'shirts', 'mens-shirts')
+  category: string;
   image: string;
   images?: string[];
   features?: string[];
@@ -12,13 +12,12 @@ export interface Product {
   colors?: string[];
   rating: number;
   reviews: number;
-  isCustomizable?: boolean;
+  tags?: string[];
   isTrending?: boolean;
   isNew?: boolean;
 }
 
 export interface CartItem {
-  /** Backend cart line id (when synced with API); used for update/remove. */
   id?: string;
   product: Product;
   quantity: number;
@@ -91,18 +90,8 @@ export interface OrderTimelineEvent {
 export interface Address {
   street: string;
   city: string;
-  state: string;
+  province: string;
   zipCode: string;
-  country: string;
-}
-
-export interface Notification {
-  id: string;
-  title: string;
-  message: string;
-  type: 'order' | 'promotion' | 'stock' | 'system';
-  read: boolean;
-  createdAt: Date;
 }
 
 export interface ChatMessage {

@@ -1,11 +1,13 @@
 .env.dev
 .env.prod
 .env
+.env.local
+.env.production
 
 node_modules
 package-lock.json
 
 firebase-service-account.json
 
-# User uploads (avatars)
 uploads/
+.env.*

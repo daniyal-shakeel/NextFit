@@ -15,7 +15,6 @@ import { avatarUploadMulter, handleMulterError } from '../middleware/upload.js';
 
 const customerRouter = express.Router();
 
-// Customer self (authToken only; admin token rejected)
 customerRouter.get('/me', requireCustomerAuth, getMe);
 customerRouter.put('/me', requireCustomerAuth, updateMe);
 customerRouter.post(
@@ -32,7 +31,6 @@ customerRouter.post(
   uploadAvatarHandler
 );
 
-// Admin (adminAuthToken + permission)
 customerRouter.get('/', requirePermission(PERMISSIONS.CUSTOMER_READ_ALL), list);
 customerRouter.get('/:id/login-activity', requirePermission(PERMISSIONS.CUSTOMER_READ_ONE), getLoginActivity);
 customerRouter.get('/:id', requirePermission(PERMISSIONS.CUSTOMER_READ_ONE), getOne);

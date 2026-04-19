@@ -5,13 +5,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* NextFit design system (matches Frontend). All colors HSL. */
-
 @layer base {
   :root {
     --background: 240 4% 95%;
     --foreground: 240 5% 10%;
-    --card: 0 0% 98%;
+    --card: 0 0% 100%;
     --card-foreground: 240 5% 10%;
     --popover: 240 5% 90%;
     --popover-foreground: 240 5% 10%;
@@ -20,15 +18,25 @@
     --secondary: 240 5% 33%;
     --secondary-foreground: 0 0% 98%;
     --muted: 240 4% 83%;
-    --muted-foreground: 240 5% 10%;
+    --muted-foreground: 240 4% 38%;
     --accent: 269 100% 98%;
     --accent-foreground: 270 91% 65%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 85% 97%;
-    --border: 240 4% 83%;
-    --input: 240 4% 83%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
     --ring: 258 89% 66%;
-    --radius: 0.5rem;
+    --radius: 1rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 240 5% 10%;
+    --sidebar-primary: 258 89% 66%;
+    --sidebar-primary-foreground: 250 100% 97%;
+    --sidebar-accent: 269 100% 97%;
+    --sidebar-accent-foreground: 258 89% 50%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 258 89% 66%;
+
     --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
     --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
     --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
@@ -44,20 +52,54 @@
     --foreground: 0 0% 98%;
     --card: 240 3% 15%;
     --card-foreground: 0 0% 98%;
+    --popover: 240 4% 12%;
+    --popover-foreground: 0 0% 98%;
     --primary: 255 91% 76%;
     --primary-foreground: 261 72% 22%;
-    --border: 240 5% 33%;
-    --input: 240 5% 33%;
+    --secondary: 240 4% 22%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 4% 18%;
+    --muted-foreground: 240 5% 64%;
+    --accent: 270 25% 22%;
+    --accent-foreground: 255 91% 88%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 85% 97%;
+    --border: 240 5% 26%;
+    --input: 240 5% 26%;
     --ring: 255 91% 76%;
-    --muted: 240 3% 46%;
-    --muted-foreground: 0 0% 98%;
-  }
-}
+    --radius: 1rem;
 
-@layer base {
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 255 91% 76%;
+    --sidebar-primary-foreground: 261 72% 22%;
+    --sidebar-accent: 270 30% 18%;
+    --sidebar-accent-foreground: 255 91% 88%;
+    --sidebar-border: 240 5% 22%;
+    --sidebar-ring: 255 91% 76%;
+
+    --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+    --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+    --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.35), 0 1px 2px -1px hsl(0 0% 0% / 0.35);
+    --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.35), 0 1px 2px -1px hsl(0 0% 0% / 0.35);
+    --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.35), 0 2px 4px -1px hsl(0 0% 0% / 0.35);
+    --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.35), 0 4px 6px -1px hsl(0 0% 0% / 0.35);
+    --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.35), 0 8px 10px -1px hsl(0 0% 0% / 0.35);
+    --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.5);
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }

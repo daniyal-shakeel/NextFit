@@ -1,17 +1,33 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
   Plus,
   Pencil,
   Eye,
   Trash2,
   RefreshCw,
+  Sparkles,
+  CloudDownload,
   type LucideIcon,
 } from "lucide-react";
-import { adminAPI, aiAPI, type AdminUser } from "@/lib/api";
+import { adminAPI, type AdminUser } from "@/lib/api";
 import { categoriesAPI, type CategoryItem } from "@/lib/api";
 import { productsAPI, type ProductItem } from "@/lib/api";
+import { formatIsoDate } from "@/lib/formatIsoDate";
+import { useDraggableModal } from "@/hooks/useDraggableModal";
+import { AdminLayout } from "@/components/layout/AdminLayout";
+import { ProductAiAssistantModal } from "@/components/ProductAiAssistantModal";
+import { ScrollTopBottomButtons } from "@/components/ScrollTopBottomButtons";
+import { ADMIN_QUERY_STALE_MS } from "@/lib/queryClient";
+
+const PAGE_SIZE = 10;
+
+const adminProductsKey = ["admin", "products"] as const;
 
 type ActionTile = {
   id: string;
@@ -20,6 +36,7 @@ type ActionTile = {
   color: string;
   disabled?: boolean;
   action: () => void;
+  title?: string;
 };
 
 function getCategoryName(categoryId: ProductItem["categoryId"]): string {
@@ -27,88 +44,27 @@ function getCategoryName(categoryId: ProductItem["categoryId"]): string {
   return typeof categoryId === "string" ? categoryId : "—";
 }
 
-/** Frontend-only: returns a warning if product name suggests a category that doesn't match the selected category. */
-function getNameCategoryMismatchWarning(productName: string, categoryName: string): string | null {
-  const name = productName.trim().toLowerCase();
-  const cat = categoryName.trim().toLowerCase();
-  if (!name || !cat) return null;
-
-  const rules: { nameTerms: string[]; categoryTerms: string[]; label: string }[] = [
-    { nameTerms: ["pants", "pant"], categoryTerms: ["pant"], label: "Pants" },
-    { nameTerms: ["shirt", "shirts"], categoryTerms: ["shirt"], label: "Shirts" },
-    { nameTerms: ["watch", "watches"], categoryTerms: ["watch"], label: "Watches" },
-    { nameTerms: ["glasses", "goggles", "goggle", "eyewear"], categoryTerms: ["glass", "goggle", "eyewear"], label: "Glasses / Goggles" },
-  ];
-
-  for (const { nameTerms, categoryTerms, label } of rules) {
-    const nameMatches = nameTerms.some((t) => name.includes(t));
-    const categoryMatches = categoryTerms.some((t) => cat.includes(t));
-    if (nameMatches && !categoryMatches) {
-      return `The product name suggests "${label}" but the selected category is "${categoryName}". Please double-check before saving.`;
-    }
-  }
-  return null;
+function getProductId(p: ProductItem): string {
+  const raw = p.id ?? (p as { _id?: string })._id;
+  return raw != null ? String(raw) : "";
 }
 
-function parseImageUrls(raw: string): string[] {
-  return raw
-    .split(/[\n,]/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-
-function validateProductForm(values: {
-  name: string;
-  description: string;
-  categoryId: string;
-  basePrice: string;
-  mainImageUrl: string;
-  imageUrlsRaw: string;
-  rating: string;
-  reviewCount: string;
-}): { valid: boolean; message?: string } {
-  if (!values.name.trim()) return { valid: false, message: "Name is required" };
-  if (!values.description.trim()) return { valid: false, message: "Description is required" };
-  if (!values.categoryId) return { valid: false, message: "Category is required" };
-  const price = Number(values.basePrice);
-  if (Number.isNaN(price) || price < 0) return { valid: false, message: "Base price must be 0 or greater" };
-  if (!values.mainImageUrl.trim()) return { valid: false, message: "Main image URL (primary) is required" };
-  const secondaryUrls = parseImageUrls(values.imageUrlsRaw);
-  if (secondaryUrls.length !== 3) {
-    return { valid: false, message: "Exactly 3 secondary image URLs are required (1 primary + 3 secondary = 4 total)" };
-  }
-  const rating = Number(values.rating);
-  if (!Number.isNaN(rating) && (rating < 0 || rating > 5)) return { valid: false, message: "Rating must be between 0 and 5" };
-  const rc = Number(values.reviewCount);
-  if (!Number.isNaN(rc) && rc < 0) return { valid: false, message: "Review count cannot be negative" };
-  return { valid: true };
-}
-
-export default function Products() {
+function Products() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { dialogStyle, handleProps, reset: resetDrag } = useDraggableModal();
   const [user, setUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState<ProductItem[]>([]);
-  const [categories, setCategories] = useState<CategoryItem[]>([]);
-  const [loadingList, setLoadingList] = useState(false);
+  const [fullCatalogLoaded, setFullCatalogLoaded] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState<ProductItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [modal, setModal] = useState<"add" | "edit" | "view" | "delete" | null>(null);
+  const [modal, setModal] = useState<"delete" | null>(null);
+  const [productDetailVisible, setProductDetailVisible] = useState(false);
+  const productDetailRef = useRef<HTMLElement | null>(null);
+  const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [formName, setFormName] = useState("");
-  const [formDescription, setFormDescription] = useState("");
-  const [formCategoryId, setFormCategoryId] = useState("");
-  const [formBasePrice, setFormBasePrice] = useState("");
-  const [formMainImageUrl, setFormMainImageUrl] = useState("");
-  const [formImageUrls, setFormImageUrls] = useState("");
-  const [formFeatures, setFormFeatures] = useState("");
-  const [formTags, setFormTags] = useState("");
-  const [formIsCustomizable, setFormIsCustomizable] = useState(false);
-  const [formRating, setFormRating] = useState("0");
-  const [formReviewCount, setFormReviewCount] = useState("0");
   const [submitLoading, setSubmitLoading] = useState(false);
-  const [suggestLoading, setSuggestLoading] = useState(false);
-  const [suggestTagsLoading, setSuggestTagsLoading] = useState(false);
 
   useEffect(() => {
     adminAPI
@@ -124,76 +80,91 @@ export default function Products() {
       .finally(() => setLoading(false));
   }, [navigate]);
 
-  const fetchProducts = async () => {
-    setLoadingList(true);
-    setError(null);
-    try {
-      const res = await productsAPI.list();
-      setProducts(res.data ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load products");
-      setProducts([]);
-    } finally {
-      setLoadingList(false);
-    }
-  };
-
-  const fetchCategories = async () => {
-    try {
+  const categoriesQuery = useQuery({
+    queryKey: ["admin", "categories"],
+    queryFn: async () => {
       const res = await categoriesAPI.list();
-      setCategories(res.data ?? []);
-    } catch {
-      setCategories([]);
+      return res.data ?? [];
+    },
+    enabled: Boolean(user),
+    staleTime: ADMIN_QUERY_STALE_MS,
+  });
+  const categories: CategoryItem[] = categoriesQuery.data ?? [];
+
+  const productsInfinite = useInfiniteQuery({
+    queryKey: [...adminProductsKey, "paginated"],
+    enabled: Boolean(user) && !fullCatalogLoaded,
+    initialPageParam: 0,
+    staleTime: ADMIN_QUERY_STALE_MS,
+    queryFn: async ({ pageParam }: { pageParam: number }) => {
+      const res = await productsAPI.list({ limit: PAGE_SIZE, skip: pageParam });
+      return res;
+    },
+    getNextPageParam: (lastPage, allPages) => {
+      if (!lastPage.hasMore) return undefined;
+      const loaded = allPages.reduce((sum, p) => sum + (p.data?.length ?? 0), 0);
+      return loaded;
+    },
+  });
+
+  const productsFull = useQuery({
+    queryKey: [...adminProductsKey, "full"],
+    queryFn: () => productsAPI.list(),
+    enabled: Boolean(user) && fullCatalogLoaded,
+    staleTime: ADMIN_QUERY_STALE_MS,
+  });
+
+  const products = useMemo((): ProductItem[] => {
+    if (fullCatalogLoaded && productsFull.data) {
+      return productsFull.data.data ?? [];
     }
+    return productsInfinite.data?.pages.flatMap((p) => p.data ?? []) ?? [];
+  }, [fullCatalogLoaded, productsFull.data, productsInfinite.data]);
+
+  const lastInfinitePage =
+    productsInfinite.data?.pages[productsInfinite.data.pages.length - 1];
+  const total = fullCatalogLoaded
+    ? products.length
+    : (lastInfinitePage?.total ?? null);
+  const hasMore = fullCatalogLoaded ? false : Boolean(lastInfinitePage?.hasMore);
+
+  const loadingList = fullCatalogLoaded
+    ? productsFull.isLoading && !productsFull.data
+    : productsInfinite.isLoading && !productsInfinite.data;
+  const loadingMore = productsInfinite.isFetchingNextPage;
+  const loadingForce = fullCatalogLoaded && productsFull.isFetching;
+
+  const listFetchError =
+    (fullCatalogLoaded ? productsFull.error : productsInfinite.error) ??
+    null;
+  const displayError =
+    error ??
+    (listFetchError instanceof Error
+      ? listFetchError.message
+      : listFetchError
+        ? String(listFetchError)
+        : null);
+
+  const handleLoadMore = () => {
+    if (fullCatalogLoaded || !hasMore || loadingMore) return;
+    void productsInfinite.fetchNextPage();
   };
 
-  useEffect(() => {
-    if (user) {
-      fetchProducts();
-      fetchCategories();
-    }
-  }, [user]);
-
-  const openAdd = () => {
-    setFormName("");
-    setFormDescription("");
-    setFormCategoryId(categories[0]?.id ?? "");
-    setFormBasePrice("");
-    setFormMainImageUrl("");
-    setFormImageUrls("");
-    setFormFeatures("");
-    setFormTags("");
-    setFormIsCustomizable(false);
-    setFormRating("0");
-    setFormReviewCount("0");
-    setError(null);
-    setModal("add");
-  };
-
-  const openEdit = () => {
-    if (!selected) return;
-    setFormName(selected.name);
-    setFormDescription(selected.description);
-    setFormCategoryId(typeof selected.categoryId === "object" ? (selected.categoryId as { _id: string })._id : selected.categoryId);
-    setFormBasePrice(String(selected.basePrice));
-    setFormMainImageUrl(selected.mainImageUrl);
-    setFormImageUrls((selected.imageUrls ?? []).join("\n"));
-    setFormFeatures((selected.features ?? []).join("\n"));
-    setFormTags((selected.tags ?? []).join(", "));
-    setFormIsCustomizable(selected.isCustomizable ?? false);
-    setFormRating(String(selected.rating ?? 0));
-    setFormReviewCount(String(selected.reviewCount ?? 0));
-    setError(null);
-    setModal("edit");
+  const handleRefresh = () => {
+    void queryClient.invalidateQueries({ queryKey: [...adminProductsKey] });
   };
 
   const openView = () => {
     if (!selected) return;
-    setModal("view");
+    setProductDetailVisible(true);
+    requestAnimationFrame(() => {
+      productDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
   const openDelete = () => {
     if (selectedIds.size === 0) return;
+    resetDrag();
     setModal("delete");
   };
 
@@ -214,139 +185,6 @@ export default function Products() {
     }
   };
 
-  const parseList = (s: string): string[] =>
-    s
-      .split(/[\n,]/)
-      .map((x) => x.trim())
-      .filter(Boolean);
-
-  const handleSuggestDescription = async () => {
-    const name = formName.trim() || "this product";
-    setSuggestLoading(true);
-    setError(null);
-    try {
-      const categoryName = formCategoryId
-        ? categories.find((c) => c.id === formCategoryId)?.name ?? ""
-        : "";
-      const res = await aiAPI.suggestDescription({
-        context: "Product",
-        name,
-        optionalKeywords: [formTags.trim(), categoryName].filter(Boolean).join(", ") || undefined,
-      });
-      if (res.data?.suggestion) setFormDescription(res.data.suggestion);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "AI suggestion failed");
-    } finally {
-      setSuggestLoading(false);
-    }
-  };
-
-  const handleSuggestTags = async () => {
-    setSuggestTagsLoading(true);
-    setError(null);
-    try {
-      const categoryName = formCategoryId
-        ? categories.find((c) => c.id === formCategoryId)?.name ?? ""
-        : "";
-      const res = await aiAPI.suggestTags({
-        name: formName.trim() || undefined,
-        description: formDescription.trim() || undefined,
-        categoryName: categoryName || undefined,
-      });
-      if (res.data?.suggestion) setFormTags(res.data.suggestion);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Tag suggestion failed");
-    } finally {
-      setSuggestTagsLoading(false);
-    }
-  };
-
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const validation = validateProductForm({
-      name: formName,
-      description: formDescription,
-      categoryId: formCategoryId,
-      basePrice: formBasePrice,
-      mainImageUrl: formMainImageUrl,
-      imageUrlsRaw: formImageUrls,
-      rating: formRating,
-      reviewCount: formReviewCount,
-    });
-    if (!validation.valid) {
-      setError(validation.message ?? "Validation failed");
-      return;
-    }
-    setSubmitLoading(true);
-    setError(null);
-    try {
-      await productsAPI.create({
-        name: formName.trim(),
-        description: formDescription.trim(),
-        categoryId: formCategoryId,
-        basePrice: Number(formBasePrice),
-        mainImageUrl: formMainImageUrl.trim(),
-        imageUrls: parseImageUrls(formImageUrls),
-        features: parseList(formFeatures),
-        tags: parseList(formTags),
-        isCustomizable: formIsCustomizable,
-        rating: Math.min(5, Math.max(0, Number(formRating) || 0)),
-        reviewCount: Math.max(0, Number(formReviewCount) || 0),
-      });
-      setModal(null);
-      fetchProducts();
-      fetchCategories();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create product");
-    } finally {
-      setSubmitLoading(false);
-    }
-  };
-
-  const handleEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selected) return;
-    const validation = validateProductForm({
-      name: formName,
-      description: formDescription,
-      categoryId: formCategoryId,
-      basePrice: formBasePrice,
-      mainImageUrl: formMainImageUrl,
-      imageUrlsRaw: formImageUrls,
-      rating: formRating,
-      reviewCount: formReviewCount,
-    });
-    if (!validation.valid) {
-      setError(validation.message ?? "Validation failed");
-      return;
-    }
-    setSubmitLoading(true);
-    setError(null);
-    try {
-      await productsAPI.update(selected.id, {
-        name: formName.trim(),
-        description: formDescription.trim(),
-        categoryId: formCategoryId,
-        basePrice: Number(formBasePrice),
-        mainImageUrl: formMainImageUrl.trim(),
-        imageUrls: parseImageUrls(formImageUrls),
-        features: parseList(formFeatures),
-        tags: parseList(formTags),
-        isCustomizable: formIsCustomizable,
-        rating: Math.min(5, Math.max(0, Number(formRating) || 0)),
-        reviewCount: Math.max(0, Number(formReviewCount) || 0),
-      });
-      setModal(null);
-      setSelected(null);
-      fetchProducts();
-      fetchCategories();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update product");
-    } finally {
-      setSubmitLoading(false);
-    }
-  };
-
   const handleDelete = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -355,10 +193,11 @@ export default function Products() {
     try {
       await Promise.all(ids.map((id) => productsAPI.delete(id)));
       setModal(null);
+      setProductDetailVisible(false);
       setSelected(null);
       setSelectedIds(new Set());
-      fetchProducts();
-      fetchCategories();
+      await queryClient.invalidateQueries({ queryKey: [...adminProductsKey] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete product(s)");
     } finally {
@@ -367,13 +206,52 @@ export default function Products() {
   };
 
   const selectedId = selected?.id ?? (selected as { _id?: string } | null)?._id;
+  const refreshIconSpin = fullCatalogLoaded
+    ? productsFull.isFetching
+    : Boolean(productsInfinite.isFetching && !productsInfinite.isFetchingNextPage);
+
   const actionTiles: ActionTile[] = [
-    { id: "add", name: "Add", icon: Plus, color: "text-emerald-600 bg-emerald-100", action: openAdd },
-    { id: "edit", name: "Edit", icon: Pencil, color: "text-amber-600 bg-amber-100", disabled: !selectedId, action: openEdit },
-    { id: "view", name: "View", icon: Eye, color: "text-sky-600 bg-sky-100", disabled: !selectedId, action: openView },
-    { id: "delete", name: "Delete", icon: Trash2, color: "text-rose-600 bg-rose-100", disabled: selectedIds.size === 0, action: openDelete },
-    { id: "refresh", name: "Refresh", icon: RefreshCw, color: "text-slate-600 bg-slate-100", action: fetchProducts },
+    { id: "add", name: "Add", icon: Plus, color: "text-emerald-600 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-950/55", action: () => navigate("/products/add") },
+    {
+      id: "edit",
+      name: "Edit",
+      icon: Pencil,
+      color: "text-amber-600 bg-amber-100 dark:text-amber-300 dark:bg-amber-950/55",
+      disabled: !selectedId,
+      action: () => {
+        if (selectedId) navigate(`/products/edit/${selectedId}`);
+      },
+    },
+    { id: "view", name: "View", icon: Eye, color: "text-sky-600 bg-sky-100 dark:text-sky-300 dark:bg-sky-950/55", disabled: !selectedId, action: openView },
+    { id: "delete", name: "Delete", icon: Trash2, color: "text-rose-600 bg-rose-100 dark:text-rose-300 dark:bg-rose-950/55", disabled: selectedIds.size === 0, action: openDelete },
+    {
+      id: "refresh",
+      name: "Refresh",
+      icon: RefreshCw,
+      color: "text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-800/70",
+      action: handleRefresh,
+      title: "Fetch latest from database",
+    },
+    {
+      id: "ai-assistant",
+      name: "AI Assistant",
+      icon: Sparkles,
+      color: "text-violet-600 bg-violet-100 dark:text-violet-300 dark:bg-violet-950/55",
+      action: () => setAiAssistantOpen(true),
+    },
   ];
+
+  const filteredProducts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter((p) => {
+      if (p.name.toLowerCase().includes(q)) return true;
+      return getCategoryName(p.categoryId).toLowerCase().includes(q);
+    });
+  }, [products, searchQuery]);
+
+  const showSearchNoMatches =
+    searchQuery.trim().length > 0 && filteredProducts.length === 0 && products.length > 0;
 
   if (loading) {
     return (
@@ -384,358 +262,441 @@ export default function Products() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card shadow-sm">
-        <div className="container mx-auto px-4 h-14 flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className="inline-flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Dashboard
-          </button>
-          <h1 className="text-xl font-serif font-bold">Product</h1>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
+    <AdminLayout title="Products" userEmail={user?.email}>
+      <div className="mx-auto max-w-6xl">
+        <div className="sticky top-14 z-20 -mx-4 mb-2 border-b border-border bg-background/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
+            <div className="flex shrink-0 flex-wrap items-center gap-1 sm:flex-nowrap">
+              {actionTiles.map(({ id, name, icon: Icon, color, disabled, action, title: tileTitle }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={action}
+                  disabled={disabled}
+                  title={tileTitle ?? name}
+                  aria-label={tileTitle ?? name}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${color}`}
+                >
+                  <Icon
+                    className={`h-4 w-4 ${id === "refresh" && refreshIconSpin ? "animate-spin" : ""}`}
+                    aria-hidden
+                  />
+                </button>
+              ))}
+            </div>
+            <div className="min-w-0 flex-1 basis-[min(100%,12rem)] sm:basis-64">
+              <label htmlFor="product-search" className="sr-only">
+                Search loaded products
+              </label>
+              <input
+                id="product-search"
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter by name or category…"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                autoComplete="off"
+              />
+            </div>
             <button
               type="button"
-              onClick={async () => {
-                try {
-                  await adminAPI.logout();
-                } finally {
-                  navigate("/login", { replace: true });
-                }
-              }}
-              className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              onClick={() => setFullCatalogLoaded(true)}
+              disabled={loadingForce || loadingList}
+              title="Force load all products from database (may take longer on large catalogs)"
+              aria-label={loadingForce ? "Loading all products" : "Force load all products from database"}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-amber-500/40 bg-card text-amber-700 hover:bg-amber-500/10 dark:text-amber-300 disabled:opacity-50"
             >
-              Log out
+              {loadingForce ? (
+                <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <CloudDownload className="h-4 w-4" aria-hidden />
+              )}
             </button>
           </div>
         </div>
-      </header>
+        <p className="mb-4 text-xs text-amber-700 dark:text-amber-200/90">
+          Force load fetches every product at once and may take longer on large catalogs.
+        </p>
 
-      <main className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
-          {actionTiles.map(({ id, name, icon: Icon, color, disabled, action }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={action}
-              disabled={disabled}
-              className="flex flex-col items-center gap-2 p-3 rounded-xl bg-card border border-border shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none"
-            >
-              <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg ${color}`} aria-hidden>
-                <Icon className="h-6 w-6" />
-              </span>
-              <span className="text-sm font-medium text-foreground">{name}</span>
-            </button>
-          ))}
-        </div>
-
-        {error && (
+        {displayError && (
           <div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
-            {error}
+            {displayError}
+          </div>
+        )}
+
+        {showSearchNoMatches && (
+          <div className="mb-4 rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            No match in the products currently loaded. Try &quot;Load more products&quot; — the product you want may appear after loading more.
           </div>
         )}
 
         <p className="text-xs text-muted-foreground mb-2">Hold Ctrl (or Cmd) and click rows to select multiple; click Delete to remove selected.</p>
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
           {loadingList ? (
             <div className="p-8 text-center text-muted-foreground">Loading products...</div>
           ) : products.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">No products yet. Use Add to create one.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-border bg-muted/50">
-                  <tr>
-                    <th className="p-3 font-medium">Name</th>
-                    <th className="p-3 font-medium">Category</th>
-                    <th className="p-3 font-medium">Price</th>
-                    <th className="p-3 font-medium">Rating</th>
-                    <th className="p-3 font-medium">Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map((p) => {
-                    const id = p.id ?? (p as { _id?: string })._id ?? "";
-                    const isSelected = selectedIds.has(id);
-                    return (
-                    <tr
-                      key={id}
-                      onClick={(e) => handleRowClick(e, p)}
-                      className={`border-b border-border last:border-0 cursor-pointer transition-colors select-none ${
-                        isSelected ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-muted/30"
-                      }`}
-                    >
-                      <td className="p-3 font-medium">{p.name}</td>
-                      <td className="p-3 text-muted-foreground">{getCategoryName(p.categoryId)}</td>
-                      <td className="p-3">{p.basePrice}</td>
-                      <td className="p-3">{p.rating}</td>
-                      <td className="p-3 text-muted-foreground">
-                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—"}
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-border bg-muted/50">
+                    <tr>
+                      <th className="p-3 font-medium">Name</th>
+                      <th className="p-3 font-medium">Category</th>
+                      <th className="p-3 font-medium">Price</th>
+                      <th className="p-3 font-medium">Rating</th>
+                      <th className="p-3 font-medium">Created</th>
                     </tr>
-                  );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {filteredProducts.map((p) => {
+                      const id = p.id ?? (p as { _id?: string })._id ?? "";
+                      const isSelected = selectedIds.has(id);
+                      return (
+                        <tr
+                          key={id}
+                          onClick={(e) => handleRowClick(e, p)}
+                          className={`border-b border-border last:border-0 cursor-pointer transition-colors select-none ${
+                            isSelected ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-muted/30"
+                          }`}
+                        >
+                          <td className="p-3 font-medium">{p.name}</td>
+                          <td className="p-3 text-muted-foreground">{getCategoryName(p.categoryId)}</td>
+                          <td className="p-3">{p.basePrice}</td>
+                          <td className="p-3">{p.rating}</td>
+                          <td className="p-3 text-muted-foreground">
+                            {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {!fullCatalogLoaded && hasMore ? (
+                <div className="border-t border-border p-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => void handleLoadMore()}
+                    disabled={loadingMore}
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {loadingMore ? "Loading…" : "Load more products"}
+                  </button>
+                  {total !== null ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Showing {products.length} of {total} products
+                    </p>
+                  ) : null}
+                </div>
+              ) : fullCatalogLoaded && total !== null ? (
+                <div className="border-t border-border px-4 py-2 text-center text-xs text-muted-foreground">
+                  All {total} products loaded
+                </div>
+              ) : null}
+            </>
           )}
         </div>
-      </main>
 
-      {/* Add / Edit modal */}
-      {(modal === "add" || modal === "edit") && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 overflow-y-auto overflow-x-hidden">
-          <div className="w-full max-w-lg max-h-[calc(100vh-1.5rem)] min-h-0 flex flex-col rounded-xl bg-card border border-border shadow-xl overflow-hidden my-auto">
-            <h2 className="text-lg font-semibold flex-shrink-0 px-4 sm:px-6 pt-4 sm:pt-6 pb-2">{modal === "add" ? "Add product" : "Edit product"}</h2>
-            <form onSubmit={modal === "add" ? handleAdd : handleEdit} className="flex flex-col flex-1 min-h-0 min-w-0 px-4 sm:px-6">
-              <div className="space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0 pb-4 pr-1">
-              <div>
-                <label className="block text-sm font-medium mb-1">Name *</label>
-                <input
-                  type="text"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  required
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <label className="text-sm font-medium">Description *</label>
-                  <button
-                    type="button"
-                    onClick={handleSuggestDescription}
-                    disabled={suggestLoading}
-                    className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
-                  >
-                    {suggestLoading ? "Suggesting…" : "Suggest with AI"}
-                  </button>
-                </div>
-                <textarea
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  required
-                  rows={3}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Category *</label>
-                <select
-                  value={formCategoryId}
-                  onChange={(e) => setFormCategoryId(e.target.value)}
-                  required
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option value="">Select category</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                {(modal === "add" || modal === "edit") && (() => {
-                  const selectedCategory = categories.find((c) => c.id === formCategoryId);
-                  const categoryName = selectedCategory?.name ?? "";
-                  const mismatchWarning = getNameCategoryMismatchWarning(formName, categoryName);
-                  return mismatchWarning ? (
-                    <div className="mt-2 rounded-md border border-amber-500/60 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:border-amber-600/50 dark:text-amber-200">
-                      {mismatchWarning}
-                    </div>
-                  ) : null;
-                })()}
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Base price *</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={formBasePrice}
-                    onChange={(e) => setFormBasePrice(e.target.value)}
-                    required
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Rating (0–5)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={5}
-                    step="0.1"
-                    value={formRating}
-                    onChange={(e) => setFormRating(e.target.value)}
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Primary image URL * (1 of 4)</label>
-                <input
-                  type="url"
-                  value={formMainImageUrl}
-                  onChange={(e) => setFormMainImageUrl(e.target.value)}
-                  required
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Secondary image URLs * (exactly 3, one per line)</label>
-                <textarea
-                  value={formImageUrls}
-                  onChange={(e) => setFormImageUrls(e.target.value)}
-                  rows={3}
-                  placeholder="One URL per line (exactly 3 lines)"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">Total: 1 primary + 3 secondary = 4 image URLs.</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Features (one per line)</label>
-                <textarea
-                  value={formFeatures}
-                  onChange={(e) => setFormFeatures(e.target.value)}
-                  rows={2}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <label className="block text-sm font-medium">Tags (comma separated)</label>
-                  <button
-                    type="button"
-                    onClick={handleSuggestTags}
-                    disabled={suggestTagsLoading}
-                    className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                  >
-                    {suggestTagsLoading ? "Suggesting…" : "Suggest with AI"}
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={formTags}
-                  onChange={(e) => setFormTags(e.target.value)}
-                  placeholder="New, Trending"
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="isCustomizable"
-                  checked={formIsCustomizable}
-                  onChange={(e) => setFormIsCustomizable(e.target.checked)}
-                  className="rounded border-input"
-                />
-                <label htmlFor="isCustomizable" className="text-sm font-medium">
-                  Customizable
-                </label>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Review count</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={formReviewCount}
-                  onChange={(e) => setFormReviewCount(e.target.value)}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-              </div>
-              <div className="flex gap-2 justify-end pt-3 flex-shrink-0 pb-4 sm:pb-6 border-t border-border mt-2">
-                <button
-                  type="button"
-                  onClick={() => setModal(null)}
-                  className="rounded-md px-4 py-2 text-sm font-medium border border-input hover:bg-accent"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitLoading}
-                  className="rounded-md px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {submitLoading ? "Saving..." : modal === "add" ? "Create" : "Update"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* View modal */}
-      {modal === "view" && selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setModal(null)}>
-          <div
-            className="w-full max-w-lg rounded-xl bg-card border border-border shadow-xl p-6 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
+        {productDetailVisible && selected ? (
+          <section
+            ref={productDetailRef}
+            className="mt-8 scroll-mt-20 rounded-2xl border border-border bg-card shadow-sm"
+            aria-labelledby="product-detail-heading"
           >
-            <h2 className="text-lg font-semibold mb-4">View product</h2>
-            <dl className="space-y-2 text-sm">
-              <div>
-                <dt className="text-muted-foreground">Name</dt>
-                <dd className="font-medium">{selected.name}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Slug</dt>
-                <dd>{selected.slug}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Description</dt>
-                <dd>{selected.description}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Category</dt>
-                <dd>{getCategoryName(selected.categoryId)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Base price</dt>
-                <dd>{selected.basePrice}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Rating / Reviews</dt>
-                <dd>{selected.rating} / {selected.reviewCount}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Main image</dt>
-                <dd className="break-all">{selected.mainImageUrl}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Customizable</dt>
-                <dd>{selected.isCustomizable ? "Yes" : "No"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Tags</dt>
-                <dd>{(selected.tags ?? []).join(", ") || "—"}</dd>
-              </div>
-            </dl>
-            <div className="mt-4 flex justify-end">
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-6">
+              <h2 id="product-detail-heading" className="text-lg font-semibold tracking-tight text-foreground">
+                Product details
+              </h2>
               <button
                 type="button"
-                onClick={() => setModal(null)}
-                className="rounded-md px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={() => setProductDetailVisible(false)}
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent"
               >
-                Close
+                Hide details
               </button>
-            </div>
-          </div>
-        </div>
-      )}
+            </header>
 
-      {/* Delete confirm */}
+            <article className="p-5 sm:p-6">
+              <div className="grid gap-8 lg:grid-cols-12 lg:gap-8 lg:items-start">
+                <div className="space-y-5 lg:col-span-7">
+                  <header className="space-y-3">
+                    <h3 className="text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-3xl">{selected.name}</h3>
+                    <div
+                      className="flex flex-wrap gap-x-4 gap-y-1 border-l-2 border-muted pl-3 text-xs text-muted-foreground"
+                      aria-label="Product identifiers and timestamps"
+                    >
+                      <span className="break-all font-mono">
+                        <span className="text-muted-foreground/80">ID </span>
+                        {getProductId(selected) || "—"}
+                      </span>
+                      <span className="break-all font-mono">
+                        <span className="text-muted-foreground/80">Slug </span>
+                        {selected.slug}
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground/80">Created </span>
+                        <time dateTime={selected.createdAt}>{formatIsoDate(selected.createdAt)}</time>
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground/80">Updated </span>
+                        <time dateTime={selected.updatedAt}>{formatIsoDate(selected.updatedAt)}</time>
+                      </span>
+                    </div>
+                  </header>
+
+                  <section
+                    className="rounded-xl border border-border bg-muted/10 p-4 sm:p-5"
+                    aria-labelledby="product-category-label"
+                  >
+                    <h4 id="product-category-label" className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Category
+                    </h4>
+                    <div className="text-sm text-foreground">
+                      {typeof selected.categoryId === "object" && selected.categoryId !== null && "name" in selected.categoryId ? (
+                        <div className="space-y-2">
+                          <p className="text-base font-medium">{(selected.categoryId as { name: string }).name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Slug <span className="font-mono">{(selected.categoryId as { slug?: string }).slug ?? "—"}</span>
+                          </p>
+                          <p className="break-all text-xs text-muted-foreground font-mono">
+                            Category id {String((selected.categoryId as { _id?: unknown })._id ?? "—")}
+                          </p>
+                        </div>
+                      ) : (
+                        <p>{String(selected.categoryId ?? "—")}</p>
+                      )}
+                    </div>
+                  </section>
+
+                  <section
+                    className="rounded-xl border border-border bg-muted/10 p-4 sm:p-5"
+                    aria-labelledby="product-pricing-label"
+                  >
+                    <h4 id="product-pricing-label" className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Pricing &amp; reviews
+                    </h4>
+                    <dl className="grid gap-4 sm:grid-cols-3">
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Base price</dt>
+                        <dd className="mt-1 text-lg font-semibold tabular-nums text-foreground">{selected.basePrice}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Rating</dt>
+                        <dd className="mt-1 text-lg font-semibold tabular-nums text-foreground">{selected.rating}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Review count</dt>
+                        <dd className="mt-1 text-lg font-semibold tabular-nums text-foreground">{selected.reviewCount}</dd>
+                      </div>
+                    </dl>
+                  </section>
+
+                  <section
+                    className="rounded-xl border border-border bg-muted/10 p-4 sm:p-5"
+                    aria-labelledby="product-inventory-label"
+                  >
+                    <h4 id="product-inventory-label" className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Inventory &amp; settings
+                    </h4>
+                    <dl className="grid gap-4 sm:grid-cols-3">
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Stock quantity</dt>
+                        <dd className="mt-1 text-sm font-medium tabular-nums text-foreground">{selected.stockQuantity ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Low stock threshold</dt>
+                        <dd className="mt-1 text-sm font-medium tabular-nums text-foreground">{selected.lowStockThreshold ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Customizable</dt>
+                        <dd className="mt-1 text-sm font-medium text-foreground">{selected.isCustomizable ? "Yes" : "No"}</dd>
+                      </div>
+                    </dl>
+                  </section>
+
+                  <section aria-labelledby="product-description-label">
+                    <h4 id="product-description-label" className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Description
+                    </h4>
+                    <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-background/80 px-4 py-3 text-sm leading-relaxed text-foreground shadow-inner">
+                      <p className="whitespace-pre-wrap">{selected.description}</p>
+                    </div>
+                  </section>
+
+                  <section
+                    className="rounded-xl border border-border bg-muted/10 p-4 sm:p-5"
+                    aria-labelledby="product-features-label"
+                  >
+                    <h4 id="product-features-label" className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Features
+                    </h4>
+                    {(selected.features ?? []).length === 0 ? (
+                      <p className="text-sm text-muted-foreground">None</p>
+                    ) : (
+                      <ul className="max-h-52 space-y-2 overflow-y-auto border border-border/60 rounded-md bg-background/60 px-4 py-3 text-sm leading-relaxed">
+                        {(selected.features ?? []).map((f, i) => (
+                          <li key={`${f}-${i}`} className="border-b border-border/40 pb-2 last:border-0 last:pb-0">
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+
+                  <section
+                    className="rounded-xl border border-border bg-muted/10 p-4 sm:p-5"
+                    aria-labelledby="product-tags-label"
+                  >
+                    <h4 id="product-tags-label" className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Tags
+                    </h4>
+                    {(selected.tags ?? []).length === 0 ? (
+                      <p className="text-sm text-muted-foreground">None</p>
+                    ) : (
+                      <ul className="flex flex-wrap gap-2">
+                        {(selected.tags ?? []).map((t, i) => (
+                          <li key={`${t}-${i}`}>
+                            <span className="inline-flex rounded-full border border-border bg-background px-2.5 py-0.5 text-xs font-medium text-foreground">
+                              {t}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                </div>
+
+                <div className="space-y-5 lg:col-span-5 lg:sticky lg:top-24">
+                  <section aria-labelledby="product-primary-image-label">
+                    <h4 id="product-primary-image-label" className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Primary image
+                    </h4>
+                    <figure className="overflow-hidden rounded-xl border border-border bg-muted/20 shadow-sm">
+                      {selected.mainImageUrl ? (
+                        <img
+                          src={selected.mainImageUrl}
+                          alt=""
+                          className="aspect-[4/3] w-full object-contain bg-background"
+                        />
+                      ) : (
+                        <figcaption className="flex aspect-[4/3] items-center justify-center p-6 text-sm text-muted-foreground">
+                          No primary image URL
+                        </figcaption>
+                      )}
+                      {selected.mainImageUrl ? (
+                        <figcaption className="border-t border-border bg-muted/30 px-3 py-2 text-[11px] leading-snug break-all text-muted-foreground font-mono">
+                          {selected.mainImageUrl}
+                        </figcaption>
+                      ) : null}
+                    </figure>
+                  </section>
+
+                  <section aria-labelledby="product-more-images-label">
+                    <h4 id="product-more-images-label" className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Gallery
+                    </h4>
+                    {(selected.imageUrls ?? []).length === 0 ? (
+                      <p className="text-sm text-muted-foreground">None</p>
+                    ) : (
+                      <ol className="flex flex-wrap gap-2">
+                        {(selected.imageUrls ?? []).map((url, i) => (
+                          <li key={`${url}-${i}`} className="shrink-0">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block overflow-hidden rounded-lg border border-border bg-background shadow-sm ring-offset-background transition hover:ring-2 hover:ring-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              title={url}
+                            >
+                              <img src={url} alt="" className="h-20 w-20 object-cover sm:h-24 sm:w-24" />
+                            </a>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </section>
+
+                  <section
+                    className="rounded-xl border border-border bg-muted/10 p-4 sm:p-5"
+                    aria-labelledby="product-image-urls-label"
+                  >
+                    <h4 id="product-image-urls-label" className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Image URLs
+                    </h4>
+                    <dl className="space-y-4 text-sm">
+                      <div>
+                        <dt className="text-xs font-medium text-muted-foreground">Primary</dt>
+                        <dd className="mt-1.5">
+                          {selected.mainImageUrl ? (
+                            <a
+                              href={selected.mainImageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="break-all font-mono text-xs text-primary underline-offset-2 hover:underline"
+                            >
+                              {selected.mainImageUrl}
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-medium text-muted-foreground">Secondary</dt>
+                        <dd className="mt-1.5">
+                          {(selected.imageUrls ?? []).length === 0 ? (
+                            <span className="text-muted-foreground">None</span>
+                          ) : (
+                            <ol className="list-decimal space-y-2 pl-4 marker:text-muted-foreground">
+                              {(selected.imageUrls ?? []).map((url, i) => (
+                                <li key={`url-list-${url}-${i}`} className="pl-1">
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="break-all font-mono text-xs text-primary underline-offset-2 hover:underline"
+                                  >
+                                    {url}
+                                  </a>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                  </section>
+                </div>
+              </div>
+            </article>
+          </section>
+        ) : null}
+      </div>
+
+      <ScrollTopBottomButtons />
+
+      <ProductAiAssistantModal
+        open={aiAssistantOpen}
+        onClose={() => setAiAssistantOpen(false)}
+        categories={categories}
+        onCompleted={() => {
+          void queryClient.invalidateQueries({ queryKey: [...adminProductsKey] });
+          void queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
+        }}
+      />
+
       {modal === "delete" && selectedIds.size > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setModal(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 dark:bg-black/60" onClick={() => setModal(null)}>
           <div
             className="w-full max-w-sm rounded-xl bg-card border border-border shadow-xl p-6"
+            style={dialogStyle}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-lg font-semibold mb-2">Delete product{selectedIds.size > 1 ? "s" : ""}</h2>
+            <h2 {...handleProps} className="text-lg font-semibold mb-2 cursor-grab active:cursor-grabbing select-none touch-none">
+              Delete product{selectedIds.size > 1 ? "s" : ""}
+            </h2>
             <p className="text-sm text-muted-foreground mb-4">
               {selectedIds.size === 1 && selected
                 ? <>Delete &quot;{selected.name}&quot;? This cannot be undone.</>
@@ -762,6 +723,8 @@ export default function Products() {
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   );
 }
+
+export default Products;

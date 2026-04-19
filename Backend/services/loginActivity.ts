@@ -1,10 +1,6 @@
 import LoginActivity from '../models/LoginActivity.js';
 import type { Request } from 'express';
 
-/**
- * Record a login attempt (success or failure) for security/compliance.
- * Does not block or throw; failures are logged only.
- */
 export async function recordLoginActivity(
   userId: string,
   success: boolean,

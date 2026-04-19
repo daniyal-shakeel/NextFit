@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Mail, Phone, Lock, User as UserIcon, ArrowRight, MailCheck, Eye, EyeOff } from 'lucide-react';
-import { RecaptchaVerifier, signInWithPhoneNumber, signInWithPopup, GoogleAuthProvider, ConfirmationResult } from 'firebase/auth';
+import { RecaptchaVerifier, signInWithPhoneNumber, signInWithPopup, GoogleAuthProvider, ConfirmationResult, signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { validatePakistanPhone } from '@/lib/phoneValidation';
-import { isDummyPhoneVerificationEnabled, isDummyAllowedPhone, DUMMY_VERIFICATION_CODE, DUMMY_PHONE_DISPLAY } from '@/lib/dummyPhoneVerification';
+import { getFirebaseTestPhoneHint } from '@/lib/phoneAuthDevHint';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -12,7 +12,8 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp
 import { useStore } from '@/store/useStore';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { authAPI, customersAPI } from '@/lib/api';
+import { authAPI, ApiError, customersAPI } from '@/lib/api';
+import { mapApiMeasurements } from '@/lib/mapApiMeasurements';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -31,31 +32,49 @@ export default function Auth() {
   const otpRef = useRef<HTMLInputElement>(null);
   const resendEmailRef = useRef<HTMLInputElement>(null);
 
-  // Phone auth (Firebase): two steps — enter phone → enter OTP
   const [phoneStep, setPhoneStep] = useState<'enter_phone' | 'enter_otp'>('enter_phone');
   const [phoneOtpValue, setPhoneOtpValue] = useState('');
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const recaptchaWidgetIdRef = useRef<number | null>(null);
   const confirmationResultRef = useRef<ConfirmationResult | null>(null);
   const sentToPhoneRef = useRef<string>('');
+  const firebaseTestPhoneHint = getFirebaseTestPhoneHint();
 
-  // Note: OAuth callbacks are handled by AuthCallback component
-  // This component only handles the initial auth check
-
-  // Check authentication status on mount
   useEffect(() => {
     checkAuthStatus();
-    // Check if resend verification action
     const action = searchParams.get('action');
     if (action === 'resend') {
       setShowVerificationScreen(true);
       setIsLogin(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /**
-   * Check if user is already authenticated
-   */
+  useEffect(() => {
+    const shouldHaveRecaptcha = activeTab === 'phone' && phoneStep === 'enter_phone';
+    if (!shouldHaveRecaptcha && recaptchaVerifierRef.current) {
+      try {
+        recaptchaVerifierRef.current.clear();
+      } catch {
+      }
+      recaptchaVerifierRef.current = null;
+      recaptchaWidgetIdRef.current = null;
+      const container = document.getElementById('phone-recaptcha-container');
+      if (container) container.innerHTML = '';
+    }
+    return () => {
+      if (recaptchaVerifierRef.current) {
+        try {
+          recaptchaVerifierRef.current.clear();
+        } catch {
+        }
+        recaptchaVerifierRef.current = null;
+        recaptchaWidgetIdRef.current = null;
+        const container = document.getElementById('phone-recaptcha-container');
+        if (container) container.innerHTML = '';
+      }
+    };
+  }, [activeTab, phoneStep]);
+
   const loginWithFullProfile = async (basic: { id: string; name: string; email: string; avatar?: string }) => {
     try {
       const res = await customersAPI.getMe();
@@ -67,7 +86,7 @@ export default function Auth() {
           email: d.email ?? basic.email,
           phone: d.phone,
           avatar: d.avatar ?? basic.avatar,
-          measurements: d.measurements,
+          measurements: mapApiMeasurements(d.measurements),
         });
       } else {
         login(basic);
@@ -99,9 +118,6 @@ export default function Auth() {
     }
   };
 
-  /**
-   * Handle resend verification email
-   */
   const handleResendVerification = async () => {
     const email = resendEmailRef.current?.value || verificationEmail;
     
@@ -125,9 +141,6 @@ export default function Auth() {
     }
   };
 
-  /**
-   * Handle Google OAuth: popup → Firebase ID token → backend verify → session
-   */
   const handleGoogleAuth = async () => {
     setIsLoading(true);
     try {
@@ -162,9 +175,6 @@ export default function Auth() {
     }
   };
 
-  /**
-   * Send OTP: dummy (dev) skips Firebase; production uses Firebase.
-   */
   const handleSendOtp = async () => {
     const raw = phoneRef.current?.value?.trim() ?? '';
     const result = validatePakistanPhone(raw);
@@ -174,18 +184,6 @@ export default function Auth() {
     }
     const e164 = result.normalized!;
 
-    if (isDummyPhoneVerificationEnabled()) {
-      if (!isDummyAllowedPhone(e164)) {
-        toast.error(`Use dummy number ${DUMMY_PHONE_DISPLAY}`);
-        return;
-      }
-      sentToPhoneRef.current = e164.replace(/\D/g, '').slice(-10);
-      setPhoneStep('enter_otp');
-      setPhoneOtpValue('');
-      toast.success(`Enter code ${DUMMY_VERIFICATION_CODE}`);
-      return;
-    }
-
     const container = document.getElementById('phone-recaptcha-container');
     if (!container) {
       toast.error('Verification not ready. Please try again.');
@@ -194,13 +192,21 @@ export default function Auth() {
 
     if (!recaptchaVerifierRef.current) {
       try {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'phone-recaptcha-container', {
-          size: 'normal',
-          callback: () => {},
-        });
+        container.innerHTML = '';
+        const verifier = new RecaptchaVerifier('phone-recaptcha-container', {
+          size: 'invisible',
+        }, auth);
+        recaptchaWidgetIdRef.current = await verifier.render();
+        recaptchaVerifierRef.current = verifier;
       } catch (err) {
         toast.error('Could not load verification. Please refresh and try again.');
         return;
+      }
+    } else if (recaptchaWidgetIdRef.current != null) {
+      try {
+        const g = (window as unknown as { grecaptcha?: { reset: (id?: number) => void } }).grecaptcha;
+        g?.reset(recaptchaWidgetIdRef.current);
+      } catch {
       }
     }
 
@@ -215,51 +221,23 @@ export default function Auth() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to send OTP';
       toast.error(message);
+      try {
+        recaptchaVerifierRef.current?.clear();
+      } catch {
+      }
+      recaptchaVerifierRef.current = null;
+      recaptchaWidgetIdRef.current = null;
+      if (container) container.innerHTML = '';
     } finally {
       setIsLoading(false);
     }
   };
 
-  /**
-   * Verify OTP: dummy (dev) sends dummyPhone + dummyCode; production uses Firebase idToken.
-   */
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const otp = phoneOtpValue.replace(/\D/g, '');
     if (otp.length !== 6) {
       toast.error('Please enter the 6-digit code');
-      return;
-    }
-
-    if (isDummyPhoneVerificationEnabled()) {
-      const tenDigits = sentToPhoneRef.current || phoneRef.current?.value?.replace(/\D/g, '').slice(-10) || '';
-      const dummyPhone = tenDigits.length === 10 ? `+92${tenDigits}` : '';
-      if (!dummyPhone) {
-        toast.error('Session expired. Please request a new code.');
-        return;
-      }
-      setIsLoading(true);
-      try {
-        const response = await authAPI.verifyPhone({ dummyPhone, dummyCode: otp });
-        if (response.success && response.data?.user) {
-          const user = response.data.user;
-          login({
-            id: user.id,
-            name: user.name ?? '',
-            email: user.email ?? '',
-            avatar: user.avatar,
-          });
-          await Promise.all([fetchCart(), fetchAddresses()]);
-          toast.success(response.message ?? (isLogin ? 'Welcome back!' : 'Account created!'));
-          navigate('/');
-        } else {
-          toast.error(response.message ?? 'Something went wrong.');
-        }
-      } catch (err: unknown) {
-        toast.error(err instanceof Error ? err.message : 'Invalid or expired code. Try again.');
-      } finally {
-        setIsLoading(false);
-      }
       return;
     }
 
@@ -270,22 +248,37 @@ export default function Auth() {
     }
 
     setIsLoading(true);
+    const phoneIntent = isLogin ? 'login' : 'signup';
     try {
       const userCredential = await confirmation.confirm(otp);
       const idToken = await userCredential.user.getIdToken();
-      const response = await authAPI.verifyPhone({ idToken });
-      if (response.success && response.data?.user) {
-        const user = response.data.user;
-        await loginWithFullProfile({
-          id: user.id,
-          name: user.name ?? '',
-          email: user.email ?? '',
-          avatar: user.avatar,
-        });
-        toast.success(response.message ?? (isLogin ? 'Welcome back!' : 'Account created!'));
-        navigate('/');
-      } else {
-        toast.error(response.message ?? 'Something went wrong.');
+      try {
+        const response = await authAPI.verifyPhone({ intent: phoneIntent, idToken });
+        if (response.success && response.data?.user) {
+          const user = response.data.user;
+          await loginWithFullProfile({
+            id: user.id,
+            name: user.name ?? '',
+            email: user.email ?? '',
+            avatar: user.avatar,
+          });
+          toast.success(response.message ?? (isLogin ? 'Welcome back!' : 'Account created!'));
+          navigate('/');
+        } else {
+          await signOut(auth);
+          toast.error(response.message ?? 'Something went wrong.');
+        }
+      } catch (apiErr: unknown) {
+        await signOut(auth);
+        const msg = apiErr instanceof Error ? apiErr.message : 'Verification failed.';
+        toast.error(msg);
+        if (apiErr instanceof ApiError && apiErr.status === 409) {
+          setIsLogin(true);
+          resetPhoneFlow();
+        } else if (apiErr instanceof ApiError && apiErr.status === 404) {
+          setIsLogin(false);
+          resetPhoneFlow();
+        }
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Invalid or expired code. Try again.';
@@ -295,18 +288,17 @@ export default function Auth() {
     }
   };
 
-  /**
-   * Reset phone flow when switching back to enter-phone step or tab
-   */
   const resetPhoneFlow = () => {
     setPhoneStep('enter_phone');
     setPhoneOtpValue('');
     confirmationResultRef.current = null;
   };
 
-  /**
-   * Handle email/password form submission
-   */
+  useEffect(() => {
+    if (activeTab !== 'phone' || phoneStep !== 'enter_otp') return;
+    resetPhoneFlow();
+  }, [isLogin]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -322,7 +314,6 @@ export default function Auth() {
       }
 
       if (isLogin) {
-        // Login
         const response = await authAPI.login(email, password);
         if (response.success && response.data?.user) {
           const user = response.data.user;
@@ -338,7 +329,6 @@ export default function Auth() {
           toast.error(response.message || 'Login failed. Please try again.');
         }
       } else {
-        // Signup
         if (activeTab === 'email') {
           const name = nameRef.current?.value || '';
           if (!name) {
@@ -354,7 +344,6 @@ export default function Auth() {
           });
           console.log(response);
           if (response.success) {
-            // Show verification screen instead of logging in
             setVerificationEmail(email);
             setShowVerificationScreen(true);
             toast.success(response.message || 'Account created successfully! Please verify your email.');
@@ -362,17 +351,14 @@ export default function Auth() {
             toast.error(response.message || 'Registration failed. Please try again.');
           }
         } else if (activeTab === 'phone') {
-          // Phone flow is handled by handleSendOtp + handleVerifyOtp (Firebase + backend)
           setIsLoading(false);
           return;
         } else if (activeTab === 'google') {
-          // Google is handled by handleGoogleAuth (popup + verifyGoogle)
           setIsLoading(false);
           return;
         }
       }
     } catch (error) {
-      // Error from API (network error, validation error, etc.)
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';
       toast.error(errorMessage);
       console.error('Auth error:', error);
@@ -381,7 +367,6 @@ export default function Auth() {
     }
   };
 
-  // Show verification screen after email signup
   if (showVerificationScreen) {
     return (
       <div className="min-h-screen py-20 flex items-center justify-center">
@@ -390,7 +375,7 @@ export default function Auth() {
             <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
               <MailCheck className="h-8 w-8 text-primary" />
             </div>
-            <h1 className="text-3xl font-serif font-bold mb-2">Verify Your Email</h1>
+            <h1 className="text-3xl font-serif font-bold mb-2 text-foreground">Verify Your Email</h1>
             <p className="text-muted-foreground">We've sent a verification link to your email</p>
           </div>
           
@@ -453,7 +438,7 @@ export default function Auth() {
     <div className="min-h-screen py-20 flex items-center justify-center">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md mx-4">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-serif font-bold mb-2">{isLogin ? 'Welcome Back' : 'Create Account'}</h1>
+          <h1 className="text-3xl font-serif font-bold mb-2 text-foreground">{isLogin ? 'Welcome Back' : 'Create Account'}</h1>
           <p className="text-muted-foreground">{isLogin ? 'Sign in to continue shopping' : 'Join NextFit today'}</p>
         </div>
         
@@ -534,8 +519,8 @@ export default function Auth() {
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
                   Pakistan (+92) only. Enter your 10-digit mobile number.
-                  {isDummyPhoneVerificationEnabled() && (
-                    <span className="block mt-1 text-xs">Dev: use {DUMMY_PHONE_DISPLAY}, code {DUMMY_VERIFICATION_CODE}</span>
+                  {firebaseTestPhoneHint && (
+                    <span className="block mt-1 text-xs">{firebaseTestPhoneHint}</span>
                   )}
                 </p>
                 {phoneStep === 'enter_phone' ? (
@@ -558,7 +543,7 @@ export default function Auth() {
                         }}
                       />
                     </div>
-                    {!isDummyPhoneVerificationEnabled() && <div id="phone-recaptcha-container" />}
+                    <div id="phone-recaptcha-container" />
                     <Button
                       type="button"
                       className="w-full"

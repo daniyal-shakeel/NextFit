@@ -49,8 +49,6 @@ export default function VerifyEmail() {
   };
 
   const handleResendVerification = async () => {
-    // This would need email from somewhere - could be from URL params or stored state
-    // For now, redirect to auth page
     navigate('/auth?action=resend');
   };
 

@@ -1,15 +1,10 @@
-/**
- * MongoDB Error Codes
- * Reference: https://github.com/mongodb/mongo/blob/master/src/mongo/base/error_codes.yml
- */
+
 export const MONGODB_ERROR_CODES = {
   DUPLICATE_KEY: 11000,           // Duplicate key error (E11000)
   DUPLICATE_KEY_UPDATE: 11001,    // Duplicate key error on update
 } as const;
 
-/**
- * MongoDB Error Names
- */
+
 export const MONGODB_ERROR_NAMES = {
   MONGO_SERVER_ERROR: 'MongoServerError',
   MONGOOSE_ERROR: 'MongoError',
@@ -17,9 +12,6 @@ export const MONGODB_ERROR_NAMES = {
   CAST_ERROR: 'CastError',
 } as const;
 
-/**
- * HTTP Status Codes
- */
 export const HTTP_STATUS = {
   OK: 200,
   CREATED: 201,

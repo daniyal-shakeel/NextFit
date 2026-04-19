@@ -1,6 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
-/** One document per user; productIds array (referenced, moderate size) */
 export interface IWishlist extends Document {
   userId: mongoose.Types.ObjectId;
   productIds: mongoose.Types.ObjectId[];
@@ -18,7 +17,6 @@ const wishlistSchema = new Schema<IWishlist>(
   { timestamps: false }
 );
 
-// userId index created by field options unique: true, index: true above
 wishlistSchema.pre('save', function (this: IWishlist) {
   this.updatedAt = new Date();
 });

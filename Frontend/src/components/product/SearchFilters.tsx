@@ -3,7 +3,6 @@ import { Search, X, SlidersHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -17,22 +16,28 @@ import {
   SheetHeader,
   SheetTitle,
   SheetTrigger,
+  SheetClose,
 } from '@/components/ui/sheet';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import { useStore } from '@/store/useStore';
 import { CURRENCY } from '@/lib/constants';
 
-interface SearchFiltersProps {
+export interface SearchFiltersProps {
   onSearch: (query: string) => void;
   onCategoryChange: (category: string) => void;
   onSortChange: (sort: string) => void;
   onPriceChange: (range: [number, number]) => void;
   selectedCategory: string;
-  /** Dynamic categories from API; if not provided, uses default pills. */
+  sortBy: string;
+  priceRange: [number, number];
   categories?: { value: string; label: string }[];
-  /** Max price for slider (default 500). */
   priceMax?: number;
+  tagOptions?: { value: string; label: string }[];
+  selectedTags: string[];
+  onSelectedTagsChange: (tags: string[]) => void;
+  inStockOnly: boolean;
+  onInStockOnlyChange: (value: boolean) => void;
 }
 
 const defaultCategories = [
@@ -51,23 +56,22 @@ const sortOptions = [
   { value: 'rating', label: 'Highest Rated' },
 ];
 
-// Simple spell correction for common words
 const correctSpelling = (query: string): string => {
   const corrections: Record<string, string> = {
-    'shrit': 'shirt',
-    'shirts': 'shirt',
-    'shirtt': 'shirt',
-    'pant': 'pants',
-    'panst': 'pants',
-    'glases': 'glasses',
-    'glasss': 'glasses',
-    'wach': 'watch',
-    'watchs': 'watches',
-    'whatch': 'watch',
+    shrit: 'shirt',
+    shirts: 'shirt',
+    shirtt: 'shirt',
+    pant: 'pants',
+    panst: 'pants',
+    glases: 'glasses',
+    glasss: 'glasses',
+    wach: 'watch',
+    watchs: 'watches',
+    whatch: 'watch',
   };
-  
+
   const words = query.toLowerCase().split(' ');
-  const corrected = words.map(word => corrections[word] || word);
+  const corrected = words.map((word) => corrections[word] || word);
   return corrected.join(' ');
 };
 
@@ -77,27 +81,29 @@ export function SearchFilters({
   onSortChange,
   onPriceChange,
   selectedCategory,
+  sortBy,
+  priceRange,
   categories: categoriesProp,
   priceMax = 500,
+  tagOptions = [],
+  selectedTags,
+  onSelectedTagsChange,
+  inStockOnly,
+  onInStockOnlyChange,
 }: SearchFiltersProps) {
   const categories = categoriesProp?.length
     ? [{ value: 'all', label: 'All Products' }, ...categoriesProp]
     : defaultCategories;
   const [query, setQuery] = useState('');
-  const [priceRange, setPriceRange] = useState<[number, number]>([0, priceMax]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const { searchHistory, addToSearchHistory } = useStore();
 
   useEffect(() => {
     const corrected = correctSpelling(query);
-    if (corrected !== query.toLowerCase() && query.length > 2) {
-      // Show correction suggestion
-    }
-    
     const debounce = setTimeout(() => {
       onSearch(corrected);
     }, 300);
-    
+
     return () => clearTimeout(debounce);
   }, [query, onSearch]);
 
@@ -109,9 +115,15 @@ export function SearchFilters({
     setShowSuggestions(false);
   };
 
+  const toggleTag = (value: string) => {
+    const next = selectedTags.includes(value)
+      ? selectedTags.filter((v) => v !== value)
+      : [...selectedTags, value];
+    onSelectedTagsChange(next);
+  };
+
   return (
     <div className="space-y-4">
-      {/* Search Bar */}
       <form onSubmit={handleSearch} className="relative">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
@@ -141,7 +153,6 @@ export function SearchFilters({
           )}
         </div>
 
-        {/* Search Suggestions */}
         <AnimatePresence>
           {showSuggestions && searchHistory.length > 0 && !query && (
             <motion.div
@@ -172,13 +183,12 @@ export function SearchFilters({
         </AnimatePresence>
       </form>
 
-      {/* Filters Bar */}
       <div className="flex flex-wrap items-center gap-4">
-        {/* Category Pills */}
         <div className="flex flex-wrap gap-2">
           {categories.map((cat) => (
             <button
               key={cat.value}
+              type="button"
               onClick={() => onCategoryChange(cat.value)}
               className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
                 selectedCategory === cat.value
@@ -193,8 +203,7 @@ export function SearchFilters({
 
         <div className="flex-1" />
 
-        {/* Sort */}
-        <Select onValueChange={onSortChange} defaultValue="featured">
+        <Select value={sortBy} onValueChange={onSortChange}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
@@ -207,66 +216,79 @@ export function SearchFilters({
           </SelectContent>
         </Select>
 
-        {/* Advanced Filters */}
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline">
+            <Button type="button" variant="outline">
               <SlidersHorizontal className="h-4 w-4 mr-2" />
               Filters
             </Button>
           </SheetTrigger>
-          <SheetContent>
-            <SheetHeader>
+          <SheetContent className="flex h-full max-h-[100dvh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-sm">
+            <SheetHeader className="shrink-0 space-y-1 border-b border-border px-6 pb-4 pt-6 text-left">
               <SheetTitle>Filters</SheetTitle>
             </SheetHeader>
-            <div className="mt-6 space-y-6">
-              {/* Price Range */}
-              <div className="space-y-4">
-                <h4 className="font-medium">Price Range</h4>
-                <Slider
-                  value={priceRange}
-                  onValueChange={(value) => {
-                    setPriceRange(value as [number, number]);
-                    onPriceChange(value as [number, number]);
-                  }}
-                  max={priceMax}
-                  step={Math.max(1, Math.floor(priceMax / 50))}
-                />
-                <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>{CURRENCY} {priceRange[0]}</span>
-                  <span>{CURRENCY} {priceRange[1]}</span>
-                </div>
-              </div>
-
-              {/* Stock */}
-              <div className="space-y-4">
-                <h4 className="font-medium">Availability</h4>
-                <div className="flex items-center gap-2">
-                  <Checkbox id="inStock" />
-                  <label htmlFor="inStock" className="text-sm">In Stock Only</label>
-                </div>
-              </div>
-
-              {/* Features */}
-              <div className="space-y-4">
-                <h4 className="font-medium">Features</h4>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="customizable" />
-                    <label htmlFor="customizable" className="text-sm">Customizable</label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="trending" />
-                    <label htmlFor="trending" className="text-sm">Trending</label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="newArrivals" />
-                    <label htmlFor="newArrivals" className="text-sm">New Arrivals</label>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 py-6">
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <h4 className="font-medium text-foreground">Price Range</h4>
+                  <Slider
+                    value={priceRange}
+                    onValueChange={(value) => {
+                      onPriceChange(value as [number, number]);
+                    }}
+                    max={priceMax}
+                    step={Math.max(1, Math.floor(priceMax / 50))}
+                  />
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <span>
+                      {CURRENCY} {priceRange[0]}
+                    </span>
+                    <span>
+                      {CURRENCY} {priceRange[1]}
+                    </span>
                   </div>
                 </div>
-              </div>
 
-              <Button className="w-full">Apply Filters</Button>
+                <div className="space-y-4">
+                  <h4 className="font-medium text-foreground">Availability</h4>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="inStock"
+                      checked={inStockOnly}
+                      onCheckedChange={(c) => onInStockOnlyChange(c === true)}
+                    />
+                    <label htmlFor="inStock" className="text-sm text-foreground">
+                      In Stock Only
+                    </label>
+                  </div>
+                </div>
+
+                {tagOptions.length > 0 ? (
+                  <div className="space-y-4">
+                    <h4 className="font-medium text-foreground">Tags</h4>
+                    <div className="space-y-2">
+                      {tagOptions.map((opt) => (
+                        <div key={opt.value} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`tag-${opt.value}`}
+                            checked={selectedTags.includes(opt.value)}
+                            onCheckedChange={() => toggleTag(opt.value)}
+                          />
+                          <label htmlFor={`tag-${opt.value}`} className="text-sm text-foreground">
+                            {opt.label}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <SheetClose asChild>
+                  <Button type="button" className="w-full">
+                    Apply Filters
+                  </Button>
+                </SheetClose>
+              </div>
             </div>
           </SheetContent>
         </Sheet>

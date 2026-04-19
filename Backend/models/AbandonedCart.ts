@@ -1,6 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
-/** Snapshot of cart when user abandons (e.g. not logged in or left checkout). */
 export interface IAbandonedCartItem {
   productId: mongoose.Types.ObjectId;
   quantity: number;
@@ -8,8 +7,8 @@ export interface IAbandonedCartItem {
 }
 
 export interface IAbandonedCart extends Document {
-  userId?: mongoose.Types.ObjectId; // Optional for guest
-  sessionId?: string; // For guest identification
+  userId?: mongoose.Types.ObjectId; 
+  sessionId?: string; 
   items: IAbandonedCartItem[];
   abandonedAt: Date;
   createdAt: Date;

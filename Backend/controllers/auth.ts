@@ -5,7 +5,6 @@ import User, { AuthMethod } from '../models/User.js';
 import EmailVerificationToken from '../models/EmailVerificationToken.js';
 import { validateEmail, validateString, validatePhone, validatePakistanPhone, splitE164 } from '../utils/validation.js';
 import { getFirebaseAdmin } from '../config/firebaseAdmin.js';
-import { getDummyVerifiedPhone, isDummyPhoneVerificationEnabled } from '../utils/dummyPhoneVerification.js';
 import { MONGODB_ERROR_CODES, MONGODB_ERROR_NAMES, HTTP_STATUS } from '../constants/errorCodes.js';
 import { PERMISSIONS } from '../constants/permissions.js';
 import { generateTokenWithExpiry } from '../utils/generateToken.js';
@@ -13,6 +12,7 @@ import { hashToken } from '../utils/hashToken.js';
 import { sendVerificationEmail } from '../services/emailService.js';
 import { recordLoginActivity } from '../services/loginActivity.js';
 import { getEmailConfig } from '../utils/env.js';
+import { getClearCookieOptions, getCookieOptions } from '../utils/cookieOptions.js';
 import type { AuthPayload } from '../middleware/requirePermission.js';
 
 interface RegisterRequestBody {
@@ -30,9 +30,7 @@ interface RegisterRequestBody {
 
 const register = async (req: Request, res: Response): Promise<Response> => {
   try {
-    // ============================================
-    // Edge Case 1: Missing request body
-    // ============================================
+   
     if (!req.body || typeof req.body !== 'object') {
       return res.status(400).json({
         success: false,
@@ -42,9 +40,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
 
     const { authMethod, email, password, name, phone, phoneCountryCode, otpCode, googleId, googleEmail, googleAvatar }: RegisterRequestBody = req.body;
 
-    // ============================================
-    // Validate authMethod
-    // ============================================
     if (!authMethod) {
       return res.status(400).json({
         success: false,
@@ -59,10 +54,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // ============================================
-    // AUTHENTICATION METHOD: EMAIL
-    // Name, email and password only executes if authMethod is email
-    // ============================================
     if (authMethod === AuthMethod.EMAIL) {
       // Validate email
       if (!email) {
@@ -126,7 +117,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
         });
       }
 
-      // Validate name (optional)
       let validatedName: string | undefined;
       if (name !== undefined && name !== null) {
         if (typeof name !== 'string') {
@@ -155,7 +145,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
 
       const normalizedEmail = email.toLowerCase().trim();
 
-      // Block signup if this identity already exists with a different auth method (check both email and googleEmail)
       const existingUserByEmail = await User.findOne({
         $or: [{ email: normalizedEmail }, { googleEmail: normalizedEmail }],
       });
@@ -172,7 +161,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
             message: 'Account already exists. Try again with Google.',
           });
         }
-        // authMethod === EMAIL: continue to existing flow below
       }
 
       const existingUser = await User.findOne({
@@ -180,7 +168,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
         authMethod: AuthMethod.EMAIL,
       });
 
-      // If user exists and email is verified, prevent re-signup
       if (existingUser && existingUser.isEmailVerified) {
         return res.status(409).json({
           success: false,
@@ -188,7 +175,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
         });
       }
 
-      // Hash password
       let hashedPassword: string;
       try {
         const saltRounds = 12;
@@ -203,20 +189,17 @@ const register = async (req: Request, res: Response): Promise<Response> => {
 
       let newUser;
       
-      // If user exists but email is NOT verified, update existing user
       if (existingUser && !existingUser.isEmailVerified) {
         try {
-          // Update existing user with new password and name
           existingUser.password = hashedPassword;
           if (validatedName) {
             existingUser.name = validatedName;
           }
-          existingUser.isEmailVerified = false; // Ensure it's still false
-          existingUser.emailVerifiedAt = undefined; // Clear any previous verification timestamp
+          existingUser.isEmailVerified = false; 
+          existingUser.emailVerifiedAt = undefined;
           await existingUser.save();
           newUser = existingUser;
 
-          // Invalidate all old verification tokens for this user
           await EmailVerificationToken.updateMany(
             { userId: existingUser._id },
             { usedAt: new Date() }
@@ -229,7 +212,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
           });
         }
       } else {
-        // Create new user with isEmailVerified = false
         try {
           newUser = await User.create({
             authMethod: AuthMethod.EMAIL,
@@ -239,10 +221,22 @@ const register = async (req: Request, res: Response): Promise<Response> => {
             isEmailVerified: false,
           });
         } catch (dbError: any) {
-          if (dbError.code === MONGODB_ERROR_CODES.DUPLICATE_KEY || dbError.name === MONGODB_ERROR_NAMES.MONGO_SERVER_ERROR) {
+          const isDupKey =
+            dbError?.code === MONGODB_ERROR_CODES.DUPLICATE_KEY ||
+            dbError?.code === MONGODB_ERROR_CODES.DUPLICATE_KEY_UPDATE;
+          if (isDupKey) {
+            const kp = dbError.keyPattern as Record<string, unknown> | undefined;
+            const duplicateOnEmail = Boolean(kp && typeof kp === 'object' && 'email' in kp);
+            if (duplicateOnEmail) {
+              return res.status(HTTP_STATUS.CONFLICT).json({
+                success: false,
+                message: 'User with this email already exists',
+              });
+            }
+            console.error('Email signup duplicate key (non-email index):', dbError);
             return res.status(HTTP_STATUS.CONFLICT).json({
               success: false,
-              message: 'User with this email already exists',
+              message: 'Could not create account. Please try again.',
             });
           }
 
@@ -265,11 +259,9 @@ const register = async (req: Request, res: Response): Promise<Response> => {
         }
       }
 
-      // Generate verification token
-      const { token, expiresAt } = generateTokenWithExpiry(24); // 24 hours expiry
+      const { token, expiresAt } = generateTokenWithExpiry(24); 
       const tokenHash = hashToken(token);
 
-      // Save token to database
       try {
         await EmailVerificationToken.create({
           userId: newUser._id,
@@ -278,7 +270,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
         });
       } catch (tokenError) {
         console.error('Error creating verification token:', tokenError);
-        // User is created but token creation failed - still return success but note email may not be sent
         return res.status(201).json({
           success: true,
           message: 'Account created, but verification email could not be sent. Please contact support.',
@@ -291,7 +282,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
         });
       }
 
-      // Send verification email
       const config = getEmailConfig();
       const verificationUrl = `${config.appBaseUrl}/verify-email?token=${token}`;
       
@@ -303,7 +293,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
 
       if (!emailResult.success) {
         console.error('Failed to send verification email:', emailResult.error);
-        // User and token are created, but email failed - still return success
         return res.status(201).json({
           success: true,
           message: 'Account created, but verification email could not be sent. Please use resend verification.',
@@ -328,138 +317,20 @@ const register = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // ============================================
-    // AUTHENTICATION METHOD: PHONE
-    // Phone steps only checked if authMethod is phone
-    // ============================================
     if (authMethod === AuthMethod.PHONE) {
-      /*
-       * PSEUDO CODE FOR PHONE/OTP VERIFICATION:
-       * 
-       * Step 1: Validate phone number
-       *   - Check if phone is provided
-       *   - Validate phone format using validatePhone()
-       *   - Check if phoneCountryCode is provided (default: '+1')
-       *   - Normalize phone number format
-       * 
-       * Step 2: Check if user already exists
-       *   - Query User.findOne({ phone: normalizedPhone })
-       *   - If exists, return error: "User with this phone already exists"
-       * 
-       * Step 3: Generate OTP code
-       *   - Generate random 6-digit OTP code
-       *   - Hash OTP using bcrypt (for security)
-       *   - Set expiration time (e.g., 10 minutes from now)
-       *   - Store hashed OTP in user.otpCode
-       *   - Store expiration in user.otpExpiresAt
-       *   - Initialize otpAttempts to 0
-       * 
-       * Step 4: Send OTP via SMS
-       *   - Use SMS service (Twilio, AWS SNS, etc.)
-       *   - Send OTP to phone number
-       *   - Handle SMS sending errors
-       * 
-       * Step 5: Create temporary user record
-       *   - Create user with:
-       *     - authMethod: AuthMethod.PHONE
-       *     - phone: normalizedPhone
-       *     - phoneCountryCode: phoneCountryCode || '+1'
-       *     - isPhoneVerified: false
-       *     - otpCode: hashedOTP
-       *     - otpExpiresAt: expirationDate
-       *     - otpAttempts: 0
-       * 
-       * Step 6: Return response
-       *   - Return success with message: "OTP sent to phone number"
-       *   - Do NOT return OTP code in response
-       *   - Client should then call verify-otp endpoint
-       * 
-       * Step 7: OTP Verification (separate endpoint)
-       *   - Receive phone and otpCode from client
-       *   - Find user by phone
-       *   - Check if OTP exists and not expired
-       *   - Check otpAttempts < maxAttempts (e.g., 5)
-       *   - Compare provided OTP with hashed OTP
-       *   - If valid:
-       *     - Set isPhoneVerified: true
-       *     - Clear otpCode, otpExpiresAt
-       *     - Reset otpAttempts
-       *     - Return success with user data
-       *   - If invalid:
-       *     - Increment otpAttempts
-       *     - Return error
-       */
-
       return res.status(501).json({
         success: false,
         message: 'Phone/OTP registration not yet implemented',
       });
     }
 
-    // ============================================
-    // AUTHENTICATION METHOD: GOOGLE
-    // Google steps only checks and executes if authMethod is google
-    // ============================================
     if (authMethod === AuthMethod.GOOGLE) {
-      /*
-       * PSEUDO CODE FOR GOOGLE OAUTH:
-       * 
-       * Step 1: Validate Google OAuth data
-       *   - Check if googleId is provided
-       *   - Check if googleEmail is provided (optional but recommended)
-       *   - Validate googleEmail format if provided
-       * 
-       * Step 2: Verify Google OAuth token
-       *   - Receive Google ID token from client
-       *   - Verify token with Google OAuth API
-       *   - Extract user info from verified token:
-       *     - googleId (sub claim)
-       *     - googleEmail (email claim)
-       *     - googleAvatar (picture claim)
-       *     - name (name claim)
-       * 
-       * Step 3: Check if user already exists
-       *   - Query User.findOne({ googleId: googleId })
-       *   - If exists:
-       *     - Update lastLoginAt
-       *     - Return existing user data
-       *   - If not exists, continue to Step 4
-       * 
-       * Step 4: Check if email already registered with different method
-       *   - If googleEmail provided:
-       *     - Query User.findOne({ email: googleEmail })
-       *     - If exists with different authMethod:
-       *       - Return error: "Email already registered with different method"
-       * 
-       * Step 5: Create new user
-       *   - Create user with:
-       *     - authMethod: AuthMethod.GOOGLE
-       *     - googleId: verifiedGoogleId
-       *     - googleEmail: verifiedGoogleEmail
-       *     - googleAvatar: verifiedGoogleAvatar
-       *     - name: verifiedName (from Google profile)
-       *     - isActive: true
-       *     - lastLoginAt: currentDate
-       * 
-       * Step 6: Generate JWT token
-       *   - Create JWT token with user ID
-       *   - Set token expiration (e.g., 7 days)
-       *   - Sign token with secret key
-       * 
-       * Step 7: Return response
-       *   - Return success with:
-       *     - user data (id, name, email, avatar)
-     *     - JWT token
-       *     - message: "Registered successfully with Google"
-       */
-
       return res.status(501).json({
         success: false,
         message: 'Google OAuth registration not yet implemented',
       });
     }
 
-    // Should never reach here, but handle unknown authMethod
     return res.status(400).json({
       success: false,
       message: 'Invalid authentication method',
@@ -488,10 +359,6 @@ const register = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
-/**
- * Verify email with token
- * GET /api/auth/verify-email?token=...
- */
 const verifyEmail = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { token } = req.query;
@@ -503,13 +370,13 @@ const verifyEmail = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // Hash the provided token
+  
     const tokenHash = hashToken(token);
 
-    // Find token in database
+
     const verificationToken = await EmailVerificationToken.findOne({
       tokenHash,
-      usedAt: null, // Not used yet
+      usedAt: null,
     }).populate('userId');
 
     if (!verificationToken) {
@@ -578,10 +445,6 @@ const verifyEmail = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
-/**
- * Resend verification email
- * POST /api/auth/resend-verification
- */
 const resendVerification = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { email } = req.body;
@@ -593,19 +456,16 @@ const resendVerification = async (req: Request, res: Response): Promise<Response
       });
     }
 
-    // Find user
     const normalizedEmail = email.toLowerCase().trim();
     const user = await User.findOne({ email: normalizedEmail, authMethod: AuthMethod.EMAIL });
 
     if (!user) {
-      // Don't reveal if user exists or not (security best practice)
       return res.status(200).json({
         success: true,
         message: 'If an account exists with this email, a verification email has been sent.',
       });
     }
 
-    // Check if already verified
     if (user.isEmailVerified) {
       return res.status(400).json({
         success: false,
@@ -613,17 +473,14 @@ const resendVerification = async (req: Request, res: Response): Promise<Response
       });
     }
 
-    // Invalidate old tokens for this user
     await EmailVerificationToken.updateMany(
       { userId: user._id, usedAt: null },
       { usedAt: new Date() }
     );
 
-    // Generate new token
     const { token, expiresAt } = generateTokenWithExpiry(24);
     const tokenHash = hashToken(token);
 
-    // Save new token
     try {
       await EmailVerificationToken.create({
         userId: user._id,
@@ -638,7 +495,6 @@ const resendVerification = async (req: Request, res: Response): Promise<Response
       });
     }
 
-    // Send verification email
     const config = getEmailConfig();
     const verificationUrl = `${config.appBaseUrl}/verify-email?token=${token}`;
 
@@ -669,13 +525,8 @@ const resendVerification = async (req: Request, res: Response): Promise<Response
   }
 };
 
-/**
- * Login user
- * POST /api/auth/login
- */
 const login = async (req: Request, res: Response): Promise<Response> => {
   try {
-    // Validate request body
     if (!req.body || typeof req.body !== 'object') {
       return res.status(400).json({
         success: false,
@@ -685,7 +536,6 @@ const login = async (req: Request, res: Response): Promise<Response> => {
 
     const { email, password } = req.body;
 
-    // Validate email
     if (!email) {
       return res.status(400).json({
         success: false,
@@ -701,7 +551,6 @@ const login = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // Validate password
     if (!password) {
       return res.status(400).json({
         success: false,
@@ -746,7 +595,6 @@ const login = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // Check if email is verified
     if (!user.isEmailVerified) {
       return res.status(403).json({
         success: false,
@@ -756,7 +604,6 @@ const login = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // Verify password
     if (!user.password) {
       return res.status(500).json({
         success: false,
@@ -773,12 +620,10 @@ const login = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // Update last login
     user.lastLoginAt = new Date();
     await user.save();
     await recordLoginActivity(user._id.toString(), true, req);
 
-    // Generate JWT token
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret || typeof jwtSecret !== 'string') {
       console.error('JWT_SECRET is not set in environment variables');
@@ -794,29 +639,13 @@ const login = async (req: Request, res: Response): Promise<Response> => {
       authMethod: user.authMethod,
     };
 
-    // Token expiration: 7 days
     const tokenExpiration = process.env.JWT_EXPIRATION || '7d';
     const token = jwt.sign(tokenPayload, jwtSecret, {
       expiresIn: tokenExpiration,
     } as SignOptions);
 
-    // Get cookie configuration based on environment
-    const nodeEnv = process.env.NODE_ENV || 'development';
-    const isProduction = nodeEnv === 'production';
-    
-    // Cookie settings
-    const cookieOptions = {
-      httpOnly: true, // Prevent XSS attacks
-      secure: isProduction, // Only send over HTTPS in production
-      sameSite: isProduction ? ('strict' as const) : ('lax' as const), // CSRF protection
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
-      path: '/', // Available site-wide
-    };
+    res.cookie('authToken', token, getCookieOptions());
 
-    // Set token in cookie
-    res.cookie('authToken', token, cookieOptions);
-
-    // Return success
     return res.status(200).json({
       success: true,
       message: 'Login successful',
@@ -839,13 +668,6 @@ const login = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
-/**
- * Admin login: authenticates against ADMIN_EMAIL and ADMIN_PASSWORD from .env only.
- * Separate from user login: even if a user exists with the same email/password,
- * they get a user token (no permissions) when using POST /api/auth/login.
- * Only this endpoint issues a token with admin permissions.
- * POST /api/auth/admin/login
- */
 const adminLogin = async (req: Request, res: Response): Promise<Response> => {
   try {
     if (!req.body || typeof req.body !== 'object') {
@@ -920,17 +742,7 @@ const adminLogin = async (req: Request, res: Response): Promise<Response> => {
       expiresIn: tokenExpiration,
     } as SignOptions);
 
-    const nodeEnv = process.env.NODE_ENV || 'development';
-    const isProduction = nodeEnv === 'production';
-    const cookieOptions = {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: (isProduction ? 'strict' : 'lax') as 'strict' | 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/',
-    };
-
-    res.cookie('adminAuthToken', token, cookieOptions);
+    res.cookie('adminAuthToken', token, getCookieOptions());
 
     return res.status(200).json({
       success: true,
@@ -954,12 +766,6 @@ const adminLogin = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
-/**
- * Check authentication status for regular users (Frontend).
- * GET /api/auth/check-auth
- * Only accepts authToken cookie (or Bearer). Ignores adminAuthToken so there is no
- * ambiguity: if authToken is removed, user is not authenticated even if adminAuthToken exists.
- */
 const checkAuth = async (req: Request, res: Response): Promise<Response> => {
   try {
     const token = req.cookies?.authToken ?? (req.headers.authorization?.startsWith('Bearer ')
@@ -1009,7 +815,6 @@ const checkAuth = async (req: Request, res: Response): Promise<Response> => {
       }
     }
 
-    // This endpoint is for users only; reject admin token
     if (decoded.authMethod === 'admin' && decoded.id === 'admin') {
       return res.status(401).json({
         success: false,
@@ -1018,7 +823,6 @@ const checkAuth = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // Get user from database (regular user tokens only)
     const user = await User.findById(decoded.id);
     if (!user) {
       return res.status(401).json({
@@ -1028,7 +832,6 @@ const checkAuth = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // Check if user is still active
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
@@ -1037,7 +840,6 @@ const checkAuth = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // For email auth, check if email is still verified
     if (user.authMethod === AuthMethod.EMAIL && !user.isEmailVerified) {
       return res.status(403).json({
         success: false,
@@ -1047,7 +849,6 @@ const checkAuth = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    // Return user info (email/avatar from googleEmail/googleAvatar for Google users)
     const email = user.authMethod === AuthMethod.GOOGLE ? user.googleEmail : user.email;
     const avatar = user.authMethod === AuthMethod.GOOGLE ? user.googleAvatar : user.avatar;
     return res.status(200).json({
@@ -1078,11 +879,6 @@ const checkAuth = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
-/**
- * Check authentication status for admin (Admin app only).
- * GET /api/auth/admin/check-auth
- * Only accepts adminAuthToken cookie (or Bearer). Ignores authToken.
- */
 const checkAdminAuth = async (req: Request, res: Response): Promise<Response> => {
   try {
     const token = req.cookies?.adminAuthToken ?? (req.headers.authorization?.startsWith('Bearer ')
@@ -1156,25 +952,9 @@ const checkAdminAuth = async (req: Request, res: Response): Promise<Response> =>
   }
 };
 
-/**
- * Logout user
- * POST /api/auth/logout
- */
 const logout = async (_req: Request, res: Response): Promise<Response> => {
   try {
-    // Clear the auth token cookie
-    const nodeEnv = process.env.NODE_ENV || 'development';
-    const isProduction = nodeEnv === 'production';
-
-    const clearCookieOptions = {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: (isProduction ? 'strict' : 'lax') as 'strict' | 'lax',
-      maxAge: 0,
-      path: '/',
-    };
-    res.cookie('authToken', '', clearCookieOptions);
-    res.cookie('adminAuthToken', '', clearCookieOptions);
+    res.cookie('authToken', '', getClearCookieOptions());
 
     return res.status(200).json({
       success: true,
@@ -1189,12 +969,23 @@ const logout = async (_req: Request, res: Response): Promise<Response> => {
   }
 };
 
-/**
- * Verify phone auth (Pakistan +92 only).
- * POST /api/auth/phone/verify
- * Body (production): { idToken: string }
- * Body (dev, when USE_DUMMY_PHONE_VERIFICATION=true): { dummyPhone: string, dummyCode: string }
- */
+const adminLogout = async (_req: Request, res: Response): Promise<Response> => {
+  try {
+    res.cookie('adminAuthToken', '', getClearCookieOptions());
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  } catch (error: any) {
+    console.error('Error in adminLogout controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred during logout. Please try again.',
+    });
+  }
+};
+
 const verifyPhone = async (req: Request, res: Response): Promise<Response> => {
   try {
     if (!req.body || typeof req.body !== 'object') {
@@ -1204,61 +995,55 @@ const verifyPhone = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    const { idToken, dummyPhone, dummyCode } = req.body;
+    const { idToken, intent } = req.body;
+
+    const authIntent = intent === 'signup' || intent === 'login' ? intent : null;
+    if (!authIntent) {
+      return res.status(400).json({
+        success: false,
+        message: 'intent must be "signup" or "login".',
+      });
+    }
+
+    if (!idToken || typeof idToken !== 'string' || idToken.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID token is required',
+      });
+    }
 
     let normalizedPhone: string | null = null;
-
-    // Isolated dummy path: remove this block in production; main flow uses idToken only
-    if (isDummyPhoneVerificationEnabled()) {
-      const dummyVerified = getDummyVerifiedPhone(dummyPhone, dummyCode);
-      if (dummyVerified) {
-        normalizedPhone = dummyVerified;
-      }
+    let decodedToken: { phone_number?: string; firebase?: { identities?: { phone?: string[] } } };
+    try {
+      const admin = getFirebaseAdmin();
+      decodedToken = await admin.auth().verifyIdToken(idToken.trim());
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Invalid token';
+      return res.status(401).json({
+        success: false,
+        message: message.includes('expired') ? 'Verification expired. Please try again.' : 'Invalid or expired verification.',
+      });
     }
 
-    if (!normalizedPhone) {
-      if (!idToken || typeof idToken !== 'string' || idToken.trim().length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: isDummyPhoneVerificationEnabled()
-            ? 'Provide either a valid Firebase ID token or (for dev) dummy phone and code.'
-            : 'ID token is required',
-        });
-      }
+    const rawPhone =
+      decodedToken.phone_number ?? decodedToken.firebase?.identities?.phone?.[0];
 
-      let decodedToken: { phone_number?: string; firebase?: { identities?: { phone?: string[] } } };
-      try {
-        const admin = getFirebaseAdmin();
-        decodedToken = await admin.auth().verifyIdToken(idToken.trim());
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Invalid token';
-        return res.status(401).json({
-          success: false,
-          message: message.includes('expired') ? 'Verification expired. Please try again.' : 'Invalid or expired verification.',
-        });
-      }
-
-      const rawPhone =
-        decodedToken.phone_number ??
-        decodedToken.firebase?.identities?.phone?.[0];
-
-      if (!rawPhone) {
-        return res.status(400).json({
-          success: false,
-          message: 'Phone number not found in verification.',
-        });
-      }
-
-      const phoneValidation = validatePakistanPhone(rawPhone);
-      if (!phoneValidation.isValid || !phoneValidation.normalized) {
-        return res.status(400).json({
-          success: false,
-          message: phoneValidation.error ?? 'Only Pakistan (+92) numbers are allowed.',
-        });
-      }
-
-      normalizedPhone = phoneValidation.normalized;
+    if (!rawPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number not found in verification.',
+      });
     }
+
+    const phoneValidation = validatePakistanPhone(rawPhone);
+    if (!phoneValidation.isValid || !phoneValidation.normalized) {
+      return res.status(400).json({
+        success: false,
+        message: phoneValidation.error ?? 'Only Pakistan (+92) numbers are allowed.',
+      });
+    }
+
+    normalizedPhone = phoneValidation.normalized;
 
     if (!normalizedPhone) {
       return res.status(400).json({
@@ -1294,6 +1079,20 @@ const verifyPhone = async (req: Request, res: Response): Promise<Response> => {
       }
     }
 
+    if (authIntent === 'signup' && existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: 'An account with this phone number already exists. Please sign in instead.',
+      });
+    }
+
+    if (authIntent === 'login' && !existingUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found for this phone number. Please sign up first.',
+      });
+    }
+
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret || typeof jwtSecret !== 'string') {
       return res.status(500).json({
@@ -1302,16 +1101,7 @@ const verifyPhone = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    const nodeEnv = process.env.NODE_ENV || 'development';
-    const isProduction = nodeEnv === 'production';
-    const cookieOptions = {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? ('strict' as const) : ('lax' as const),
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/',
-    };
-
+    const cookieOptions = getCookieOptions();
     const tokenExpiration = process.env.JWT_EXPIRATION || '7d';
 
     if (existingUser) {
@@ -1410,11 +1200,6 @@ const verifyPhone = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
-/**
- * Verify Google sign-in (Firebase ID token).
- * POST /api/auth/google/verify
- * Body: { idToken: string }
- */
 const verifyGoogle = async (req: Request, res: Response): Promise<Response> => {
   try {
     if (!req.body || typeof req.body !== 'object') {
@@ -1480,16 +1265,7 @@ const verifyGoogle = async (req: Request, res: Response): Promise<Response> => {
       });
     }
 
-    const nodeEnv = process.env.NODE_ENV || 'development';
-    const isProduction = nodeEnv === 'production';
-    const cookieOptions = {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? ('strict' as const) : ('lax' as const),
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/',
-    };
-
+    const cookieOptions = getCookieOptions();
     const tokenExpiration = process.env.JWT_EXPIRATION || '7d';
 
     if (existingByGoogleId) {
@@ -1606,4 +1382,4 @@ const verifyGoogle = async (req: Request, res: Response): Promise<Response> => {
   }
 };
 
-export { register, login, logout, adminLogin, verifyEmail, resendVerification, checkAuth, checkAdminAuth, verifyPhone, verifyGoogle };
+export { register, login, logout, adminLogout, adminLogin, verifyEmail, resendVerification, checkAuth, checkAdminAuth, verifyPhone, verifyGoogle };

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
@@ -9,29 +10,18 @@ import {
   Check,
   Info
 } from 'lucide-react';
-import { CameraTryOn } from '@/components/virtual-tryon/CameraTryOn';
+import { CameraTryOn } from '@/components/LiveTryOn/CameraTryOn';
 import PhotoTryOn from '@/components/virtual-tryon/PhotoTryOn';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { productsAPI, apiProductToProduct } from '@/lib/api';
-import { mockProducts } from '@/lib/mockData';
+import { frontendProductsListKey } from '@/lib/queryClient';
 import type { Product } from '@/lib/types';
 import { toast } from 'sonner';
 import { CURRENCY } from '@/lib/constants';
-
-const DEV_SHIRT_PRODUCT: Product = {
-  id: 'dev-shirt',
-  name: 'Dev Shirt (Try-On)',
-  description: 'Hardcoded shirt for development',
-  price: 0,
-  category: 'shirts',
-  image: '/assets/dev-shirt.png',
-  inStock: true,
-  rating: 0,
-  reviews: 0,
-};
+import { getDevGarmentProducts, getFeaturedTryOnGarments, isDevGarmentProduct } from '@/lib/devShirts';
 
 const sizeChart = {
   shirts: [
@@ -54,7 +44,6 @@ export default function VirtualTryOn() {
   const [searchParams] = useSearchParams();
   const productIdFromUrl = searchParams.get('product');
   const modeFromUrl = searchParams.get('mode');
-  const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [activeTab, setActiveTab] = useState<string>(() => {
     if (modeFromUrl === 'camera') return 'camera';
@@ -92,38 +81,55 @@ export default function VirtualTryOn() {
     toast.success(`Based on your measurements, we recommend size ${size}`);
   };
 
+  const localTryOnProducts = useMemo(
+    () => [
+      ...getFeaturedTryOnGarments(),
+      ...(import.meta.env.DEV ? getDevGarmentProducts() : []),
+    ],
+    [],
+  );
+
+  const productsQuery = useQuery({
+    queryKey: frontendProductsListKey('all'),
+    queryFn: () =>
+      productsAPI.getList({}).then((res) => (res.data ?? []).map(apiProductToProduct)),
+  });
+  const products: Product[] = productsQuery.isError ? [] : (productsQuery.data ?? []);
+
   const tryOnProducts = products.filter(
     (p) => p.category === 'shirts' || p.category === 'glasses' || p.category?.toLowerCase().includes('shirt') || p.category?.toLowerCase().includes('glass')
   );
   const productsToShow = tryOnProducts.length > 0 ? tryOnProducts : products.slice(0, 6);
-  const cameraProducts = [DEV_SHIRT_PRODUCT, ...productsToShow];
+  const cameraProducts = [...localTryOnProducts, ...productsToShow];
 
   useEffect(() => {
-    productsAPI
-      .getList()
-      .then((res) => {
-        const list = (res.data ?? []).map(apiProductToProduct);
-        setProducts(list);
-        if (productIdFromUrl) {
-          const byId = list.find((p) => p.id === productIdFromUrl);
-          if (byId) setSelectedProduct(byId);
-          else {
-            const tryOn = list.filter((p) => p.category === 'shirts' || p.category === 'glasses' || p.category?.toLowerCase().includes('shirt') || p.category?.toLowerCase().includes('glass'));
-            if (tryOn.length > 0) setSelectedProduct(tryOn[0]);
-            else if (list.length > 0) setSelectedProduct(list[0]);
-          }
-        } else {
-          const tryOn = list.filter((p) => p.category === 'shirts' || p.category === 'glasses' || p.category?.toLowerCase().includes('shirt') || p.category?.toLowerCase().includes('glass'));
-          if (tryOn.length > 0) setSelectedProduct(tryOn[0]);
-          else if (list.length > 0) setSelectedProduct(list[0]);
-        }
-      })
-      .catch(() => {
-        setProducts(mockProducts);
-        const tryOn = mockProducts.filter((p) => p.category === 'shirts' || p.category === 'glasses' || p.category?.toLowerCase().includes('shirt') || p.category?.toLowerCase().includes('glass'));
-        setSelectedProduct(tryOn.length > 0 ? tryOn[0] : mockProducts[0]);
-      });
-  }, [productIdFromUrl]);
+    if (productsQuery.isPending && !productsQuery.isError) return;
+    const list = products;
+    const merged = [...localTryOnProducts, ...list];
+    const pickTryOn = () =>
+      list.filter(
+        (p) =>
+          p.category === 'shirts' ||
+          p.category === 'glasses' ||
+          p.category?.toLowerCase().includes('shirt') ||
+          p.category?.toLowerCase().includes('glass'),
+      );
+    if (productIdFromUrl) {
+      const byId = merged.find((p) => p.id === productIdFromUrl);
+      if (byId) setSelectedProduct(byId);
+      else {
+        const tryOn = pickTryOn();
+        if (tryOn.length > 0) setSelectedProduct(tryOn[0]);
+        else if (localTryOnProducts.length > 0) setSelectedProduct(localTryOnProducts[0]);
+        else if (list.length > 0) setSelectedProduct(list[0]);
+      }
+    } else {
+      const tryOn = pickTryOn();
+      if (tryOn.length > 0) setSelectedProduct(tryOn[0]);
+      else if (localTryOnProducts.length > 0) setSelectedProduct(localTryOnProducts[0]);
+      else if (list.length > 0) setSelectedProduct(list[0]);
+    }
+  }, [productIdFromUrl, localTryOnProducts, products, productsQuery.isPending, productsQuery.isError]);
 
   return (
     <div className="min-h-screen py-6 md:py-8">
@@ -133,7 +139,7 @@ export default function VirtualTryOn() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-6 md:mb-8"
         >
-          <h1 className="text-2xl md:text-4xl font-serif font-bold mb-2 flex items-center gap-2 md:gap-3">
+          <h1 className="text-2xl md:text-4xl font-serif font-bold mb-2 flex items-center gap-2 md:gap-3 text-foreground">
             <Eye className="h-8 w-8 md:h-10 md:w-10 text-primary" />
             Virtual Try-On
           </h1>
@@ -161,7 +167,6 @@ export default function VirtualTryOn() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Measurements Tab */}
           <TabsContent value="measurements">
             <div className="grid lg:grid-cols-2 gap-6 md:gap-8">
               <Card>
@@ -242,7 +247,6 @@ export default function VirtualTryOn() {
                 </CardContent>
               </Card>
 
-              {/* Size Chart */}
               <Card>
                 <CardHeader className="pb-4 md:pb-6">
                   <CardTitle className="text-lg md:text-xl">Size Chart</CardTitle>
@@ -318,14 +322,13 @@ export default function VirtualTryOn() {
             </div>
           </TabsContent>
 
-          {/* AI Photo Try-On Tab */}
           <TabsContent value="image">
             <div className="grid lg:grid-cols-2 gap-6 md:gap-8">
               <Card className="md:order-1">
                 <CardHeader className="pb-4 md:pb-6">
                   <CardTitle className="text-lg md:text-xl">AI Photo Try-On</CardTitle>
                   <CardDescription className="text-xs md:text-sm">
-                    Upload your photo and select a product — AI generates a realistic result showing you wearing the garment.
+                    Upload your photo and select a product - AI generates a realistic result showing you wearing the garment.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 md:space-y-6">
@@ -336,9 +339,9 @@ export default function VirtualTryOn() {
                     <div className="text-xs md:text-sm text-muted-foreground">
                       <p className="font-medium text-accent-foreground">Tips for best results:</p>
                       <ul className="mt-1 space-y-1">
-                        <li>• Stand in front of a plain background</li>
-                        <li>• Wear fitted clothing</li>
-                        <li>• Ensure good lighting</li>
+                        <li>- Stand in front of a plain background</li>
+                        <li>- Wear fitted clothing</li>
+                        <li>- Ensure good lighting</li>
                       </ul>
                     </div>
                   </div>
@@ -351,7 +354,7 @@ export default function VirtualTryOn() {
                   <CardDescription className="text-xs md:text-sm">Choose a garment for AI try-on</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-2 md:gap-3 max-h-[300px] md:max-h-[400px] overflow-y-auto">
+                  <div className="grid grid-cols-2 gap-2 md:gap-3 min-h-[300px] md:min-h-[400px] overflow-y-auto">
                     {cameraProducts.map((product) => (
                       <button
                         key={product.id}
@@ -368,7 +371,9 @@ export default function VirtualTryOn() {
                           className="w-full aspect-square object-cover rounded-md mb-2"
                         />
                         <p className="text-xs md:text-sm font-medium line-clamp-1">{product.name}</p>
-                        <p className="text-xs text-muted-foreground">{product.id === 'dev-shirt' ? 'Dev' : `${CURRENCY} ${product.price}`}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {isDevGarmentProduct(product) ? 'Dev' : `${CURRENCY} ${product.price}`}
+                        </p>
                       </button>
                     ))}
                   </div>
@@ -377,28 +382,41 @@ export default function VirtualTryOn() {
             </div>
           </TabsContent>
 
-          {/* Live Camera Tab */}
           <TabsContent value="camera">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
               <Card className="md:order-1">
                 <CardHeader className="pb-4 md:pb-6">
                   <CardTitle className="text-lg md:text-xl">Live Camera Try-On</CardTitle>
                   <CardDescription className="text-xs md:text-sm">
-                    Stand in frame to see the shirt overlay on your torso in real-time. Works with whatever you&apos;re wearing — no need to remove your shirt.
+                    Stand in frame so the shirt image maps to your upper body in 2D over the live camera. Works with whatever you're wearing - no need to remove your shirt.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 md:space-y-6">
-                  <CameraTryOn selectedProduct={selectedProduct} />
+                  <CameraTryOn selectedProduct={selectedProduct} tabActive={activeTab === 'camera'} />
 
                   <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg">
                     <Info className="h-4 w-4 md:h-5 md:w-5 text-accent-foreground mt-0.5 flex-shrink-0" />
                     <div className="text-xs md:text-sm text-muted-foreground">
                       <p className="font-medium text-accent-foreground">Tips for best results:</p>
-                      <ul className="mt-1 space-y-1">
-                        <li>• Works with your clothes on — keep your shirt on</li>
-                        <li>• Stand 2–3 feet from camera</li>
-                        <li>• Ensure shoulders and torso are visible</li>
-                        <li>• Product images work best with transparent backgrounds</li>
+                      <ul className="mt-2 space-y-1.5 list-none">
+                        <li>
+                          <span className="text-foreground/90 font-medium">Wait for Ready.</span> The overlay only appears when your nose, both shoulders, and both hips are in frame with good visibility. Follow the border hint until it turns green.
+                        </li>
+                        <li>
+                          <span className="text-foreground/90 font-medium">Distance.</span> Stand far enough that your upper body fits comfortably in the picture. If it says too close, step back; if too far, move closer—about arm&apos;s length to the screen often works well.
+                        </li>
+                        <li>
+                          <span className="text-foreground/90 font-medium">Face the camera.</span> Stand square to the webcam, not turned sideways. This mode maps a flat shirt image and looks most natural from the front.
+                        </li>
+                        <li>
+                          <span className="text-foreground/90 font-medium">Lighting.</span> Use bright, even light on your body. Avoid strong light behind you (window or lamp) so your outline stays clear.
+                        </li>
+                        <li>
+                          <span className="text-foreground/90 font-medium">Product images.</span> Choose flat-lay or cutout shirt PNGs, ideally with a transparent background, so the graphic scales cleanly on your torso.
+                        </li>
+                        <li>
+                          <span className="text-foreground/90 font-medium">Clothing.</span> You can keep your own shirt on; fitted layers reduce bulk under the overlay compared to very loose hoodies.
+                        </li>
                       </ul>
                     </div>
                   </div>
@@ -430,7 +448,9 @@ export default function VirtualTryOn() {
                           className="w-full aspect-square object-cover rounded-md mb-2"
                         />
                         <p className="text-xs md:text-sm font-medium line-clamp-1">{product.name}</p>
-                        <p className="text-xs text-muted-foreground">{product.id === 'dev-shirt' ? 'Dev' : `${CURRENCY} ${product.price}`}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {isDevGarmentProduct(product) ? 'Dev' : `${CURRENCY} ${product.price}`}
+                        </p>
                       </button>
                     ))}
                   </div>

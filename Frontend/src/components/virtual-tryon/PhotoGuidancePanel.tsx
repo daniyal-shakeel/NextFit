@@ -1,28 +1,8 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Check, X } from 'lucide-react';
 
-const examples = [
-  {
-    src: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300',
-    good: true,
-    label: 'Front facing, arms relaxed \u2713',
-  },
-  {
-    src: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=300',
-    good: true,
-    label: 'Clear upper body visible \u2713',
-  },
-  {
-    src: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300',
-    good: false,
-    label: 'Side angle \u2014 avoid \u2717',
-  },
-  {
-    src: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300',
-    good: false,
-    label: 'Crossed arms \u2014 avoid \u2717',
-  },
-] as const;
+const RECOMMENDED_IMAGE = '/assets/photo-guideline-recommended.png';
+const UNRECOMMENDED_IMAGE = '/assets/photo-guideline-unrecommended.png';
 
 export default function PhotoGuidancePanel() {
   const [open, setOpen] = useState(true);
@@ -44,33 +24,39 @@ export default function PhotoGuidancePanel() {
 
       {open && (
         <div className="px-4 pb-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            {examples.map((ex) => (
-              <div key={ex.src} className="relative rounded-lg overflow-hidden">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
+            <div>
+              <div className="relative rounded-lg overflow-hidden border border-border bg-muted/30 dark:bg-zinc-900 shadow-sm">
                 <img
-                  src={ex.src}
-                  alt={ex.label}
+                  src={RECOMMENDED_IMAGE}
+                  alt="Recommended: front-facing, clear upper body, neutral background"
                   loading="lazy"
                   className="w-full aspect-[3/4] object-cover"
                 />
-                <div
-                  className={`absolute inset-0 flex items-center justify-center ${
-                    ex.good
-                      ? 'bg-green-500/25'
-                      : 'bg-red-500/25'
-                  }`}
-                >
-                  {ex.good ? (
-                    <Check className="h-10 w-10 text-green-500 drop-shadow-md" strokeWidth={3} />
-                  ) : (
-                    <X className="h-10 w-10 text-red-500 drop-shadow-md" strokeWidth={3} />
-                  )}
+                <div className="absolute inset-0 flex items-center justify-center bg-green-500/20 pointer-events-none">
+                  <Check className="h-9 w-9 text-green-600 dark:text-green-400 drop-shadow-md" strokeWidth={3} />
                 </div>
-                <p className="text-xs text-center py-1.5 bg-background/80 font-medium">
-                  {ex.label}
-                </p>
               </div>
-            ))}
+              <p className="text-xs text-center py-2 font-medium text-foreground">
+                Recommended example
+              </p>
+            </div>
+            <div>
+              <div className="relative rounded-lg overflow-hidden border border-border bg-muted/30 dark:bg-zinc-900 shadow-sm">
+                <img
+                  src={UNRECOMMENDED_IMAGE}
+                  alt="Avoid: crossed arms or pose that hides the torso"
+                  loading="lazy"
+                  className="w-full aspect-[3/4] object-cover"
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-red-500/20 pointer-events-none">
+                  <X className="h-9 w-9 text-red-600 dark:text-red-400 drop-shadow-md" strokeWidth={3} />
+                </div>
+              </div>
+              <p className="text-xs text-center py-2 font-medium text-foreground">
+                Not recommended — arms crossed / torso obscured
+              </p>
+            </div>
           </div>
 
           <p className="text-xs text-muted-foreground text-center leading-relaxed">

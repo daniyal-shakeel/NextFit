@@ -18,10 +18,6 @@ declare global {
   }
 }
 
-/**
- * Middleware: verify JWT from cookie or Authorization header and require a permission.
- * Attaches decoded payload to req.auth. If token lacks the required permission, responds 403.
- */
 export function requirePermission(permission: Permission) {
   return (req: Request, res: Response, next: NextFunction): void | Response => {
     const token = req.cookies?.adminAuthToken ?? req.cookies?.authToken ?? (req.headers.authorization?.startsWith('Bearer ')
@@ -67,11 +63,54 @@ export function requirePermission(permission: Permission) {
   };
 }
 
-/**
- * Middleware: verify user (customer) JWT from authToken cookie or Bearer only.
- * Rejects admin token so only real customers can access "me" routes.
- * Attaches decoded payload to req.auth.
- */
+export function requireAnyPermission(...permissions: Permission[]) {
+  return (req: Request, res: Response, next: NextFunction): void | Response => {
+    const token = req.cookies?.adminAuthToken ?? req.cookies?.authToken ?? (req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7)
+      : null);
+
+    if (!token) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        success: false,
+        message: 'No authentication token found',
+      });
+    }
+
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret || typeof jwtSecret !== 'string') {
+      return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        message: 'Server configuration error',
+      });
+    }
+
+    let decoded: AuthPayload;
+    try {
+      decoded = jwt.verify(token, jwtSecret) as AuthPayload;
+    } catch {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        success: false,
+        message: 'Invalid or expired token',
+      });
+    }
+
+    req.auth = decoded;
+
+    const tokenPermissions = decoded.permissions;
+    const allowed =
+      Array.isArray(tokenPermissions) &&
+      permissions.some((p) => tokenPermissions.includes(p));
+    if (!allowed) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        success: false,
+        message: 'Insufficient permissions',
+      });
+    }
+
+    next();
+  };
+}
+
 export function requireCustomerAuth(req: Request, res: Response, next: NextFunction): void | Response {
   const token =
     req.cookies?.authToken ??

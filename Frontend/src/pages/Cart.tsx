@@ -4,8 +4,11 @@ import { motion } from 'framer-motion';
 import { Trash2, Plus, Minus, ShoppingBag, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store/useStore';
+import { storeAPI, computeShippingFromStore, type StoreShippingData } from '@/lib/api';
 import { toast } from 'sonner';
 import { CURRENCY } from '@/lib/constants';
+
+const DEFAULT_STORE_SHIPPING: StoreShippingData = { shippingRate: 10, freeShippingMinSubtotal: 100 };
 
 const CART_MIN_Q = 1;
 const CART_MAX_Q = 999;
@@ -20,6 +23,16 @@ export default function Cart() {
     updateQuantity,
   } = useStore();
   const [updating, setUpdating] = useState<string | null>(null);
+  const [storeShipping, setStoreShipping] = useState<StoreShippingData>(DEFAULT_STORE_SHIPPING);
+
+  useEffect(() => {
+    storeAPI
+      .getShipping()
+      .then((res) => {
+        if (res.data) setStoreShipping(res.data);
+      })
+      .catch(() => setStoreShipping(DEFAULT_STORE_SHIPPING));
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -28,7 +41,8 @@ export default function Cart() {
   }, [isAuthenticated, fetchCart]);
 
   const subtotal = cartTotals?.subtotal ?? cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const shipping = cartTotals?.shipping ?? (subtotal > 100 ? 0 : 10);
+  const shipping =
+    cartTotals?.shipping ?? computeShippingFromStore(subtotal, storeShipping);
   const total = cartTotals?.total ?? subtotal + shipping;
 
   const handleRemove = async (item: (typeof cart)[0]) => {
@@ -62,7 +76,7 @@ export default function Cart() {
       <div className="min-h-screen py-12 md:py-20">
         <div className="container mx-auto px-4 text-center">
           <ShoppingBag className="h-16 w-16 md:h-20 md:w-20 mx-auto text-muted-foreground mb-4 md:mb-6" />
-          <h1 className="text-2xl md:text-3xl font-serif font-bold mb-3 md:mb-4">Your Cart is Empty</h1>
+          <h1 className="text-2xl md:text-3xl font-serif font-bold mb-3 md:mb-4 text-foreground">Your Cart is Empty</h1>
           <p className="text-muted-foreground mb-6 md:mb-8">Looks like you haven&apos;t added anything yet.</p>
           <Link to="/shop"><Button size="lg">Start Shopping</Button></Link>
         </div>
@@ -73,7 +87,7 @@ export default function Cart() {
   return (
     <div className="min-h-screen py-6 md:py-8">
       <div className="container mx-auto px-4">
-        <h1 className="text-2xl md:text-4xl font-serif font-bold mb-6 md:mb-8">Shopping Cart</h1>
+        <h1 className="text-2xl md:text-4xl font-serif font-bold mb-6 md:mb-8 text-foreground">Shopping Cart</h1>
         <div className="grid lg:grid-cols-3 gap-6 md:gap-8">
           <div className="lg:col-span-2 space-y-3 md:space-y-4">
             {cart.map((item, index) => (
@@ -94,7 +108,6 @@ export default function Cart() {
                   <p className="text-sm text-muted-foreground">
                     {item.size && `Size: ${item.size}`} {item.color && `• Color: ${item.color}`}
                   </p>
-                  {item.customization && <p className="text-xs text-primary">Custom Design</p>}
                   <p className="font-bold text-primary mt-2">{CURRENCY} {item.product.price.toFixed(2)}</p>
                 </div>
                 <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-between">

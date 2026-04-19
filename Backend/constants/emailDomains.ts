@@ -1,7 +1,3 @@
-/**
- * Popular email domains allowed for registration
- * This list includes major email providers worldwide
- */
 export const ALLOWED_EMAIL_DOMAINS = [
     /* =========================
        Google
@@ -118,9 +114,6 @@ export const ALLOWED_EMAIL_DOMAINS = [
   ] as const;
   
 
-/**
- * Check if an email domain is in the allowed list
- */
 export const isAllowedEmailDomain = (domain: string): boolean => {
   const normalizedDomain = domain.toLowerCase().trim();
   return ALLOWED_EMAIL_DOMAINS.includes(normalizedDomain as typeof ALLOWED_EMAIL_DOMAINS[number]);

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  LogOut,
   LayoutGrid,
   Package,
   Users,
@@ -10,27 +9,86 @@ import {
   BarChart3,
   Settings,
   Boxes,
+  ChevronRight,
   type LucideIcon,
 } from "lucide-react";
 import { adminAPI, type AdminUser } from "@/lib/api";
+import { AdminLayout } from "@/components/layout/AdminLayout";
 
-type AppTile = {
+type SectionCard = {
   id: string;
   name: string;
+  description: string;
   icon: LucideIcon;
-  color: string; // tailwind text-* and bg-* classes
+  iconWrap: string;
   path: string;
 };
 
-const APP_TILES: AppTile[] = [
-  { id: "category", name: "Category", icon: LayoutGrid, color: "text-violet-600 bg-violet-100", path: "/categories" },
-  { id: "product", name: "Product", icon: Package, color: "text-teal-600 bg-teal-100", path: "/products" },
-  { id: "customer", name: "Customer", icon: Users, color: "text-sky-600 bg-sky-100", path: "/customers" },
-  { id: "user", name: "User", icon: UserCircle, color: "text-amber-600 bg-amber-100", path: "/users" },
-  { id: "order", name: "Order", icon: ShoppingCart, color: "text-emerald-600 bg-emerald-100", path: "/orders" },
-  { id: "inventory", name: "Inventory", icon: Boxes, color: "text-orange-600 bg-orange-100", path: "/inventory" },
-  { id: "reports", name: "Reports", icon: BarChart3, color: "text-rose-600 bg-rose-100", path: "/reports" },
-  { id: "settings", name: "Settings", icon: Settings, color: "text-slate-600 bg-slate-100", path: "/settings" },
+const SECTIONS: SectionCard[] = [
+  {
+    id: "category",
+    name: "Categories",
+    description: "Create and manage categories with cover images",
+    icon: LayoutGrid,
+    iconWrap: "bg-violet-100 text-violet-600 dark:bg-violet-950/55 dark:text-violet-300",
+    path: "/categories",
+  },
+  {
+    id: "product",
+    name: "Products",
+    description: "Add, edit, and remove products in your catalog",
+    icon: Package,
+    iconWrap: "bg-teal-100 text-teal-600 dark:bg-teal-950/55 dark:text-teal-300",
+    path: "/products",
+  },
+  {
+    id: "order",
+    name: "Orders",
+    description: "Track and update order status across the store",
+    icon: ShoppingCart,
+    iconWrap: "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/55 dark:text-emerald-300",
+    path: "/orders",
+  },
+  {
+    id: "customer",
+    name: "Customers",
+    description: "View shopper accounts, activity, and addresses",
+    icon: Users,
+    iconWrap: "bg-sky-100 text-sky-600 dark:bg-sky-950/55 dark:text-sky-300",
+    path: "/customers",
+  },
+  {
+    id: "user",
+    name: "Users",
+    description: "Browse registered users and login history",
+    icon: UserCircle,
+    iconWrap: "bg-amber-100 text-amber-600 dark:bg-amber-950/55 dark:text-amber-300",
+    path: "/users",
+  },
+  {
+    id: "inventory",
+    name: "Inventory",
+    description: "Adjust stock levels and low-stock thresholds",
+    icon: Boxes,
+    iconWrap: "bg-orange-100 text-orange-600 dark:bg-orange-950/55 dark:text-orange-300",
+    path: "/inventory",
+  },
+  {
+    id: "reports",
+    name: "Reports",
+    description: "Revenue, orders, and catalog health at a glance",
+    icon: BarChart3,
+    iconWrap: "bg-rose-100 text-rose-600 dark:bg-rose-950/55 dark:text-rose-300",
+    path: "/reports",
+  },
+  {
+    id: "settings",
+    name: "Settings",
+    description: "Integrations, defaults, and AI feature toggles",
+    icon: Settings,
+    iconWrap: "bg-slate-100 text-slate-600 dark:bg-slate-800/70 dark:text-slate-300",
+    path: "/settings",
+  },
 ];
 
 export default function Dashboard() {
@@ -52,18 +110,6 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, [navigate]);
 
-  const handleLogout = async () => {
-    try {
-      await adminAPI.logout();
-    } finally {
-      navigate("/login", { replace: true });
-    }
-  };
-
-  const handleTileClick = (path: string) => {
-    navigate(path);
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -73,46 +119,54 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card shadow-sm">
-        <div className="container mx-auto px-4 h-14 flex items-center justify-between">
-          <h1 className="text-xl font-serif font-bold">NextFit Admin</h1>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            >
-              <LogOut className="h-4 w-4" />
-              Log out
-            </button>
+    <AdminLayout title="Dashboard" userEmail={user?.email}>
+      <div className="mx-auto max-w-6xl space-y-8">
+        <div className="rounded-2xl border border-border bg-card p-6 sm:p-8 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-xl font-bold text-primary-foreground">
+              N
+            </div>
+            <div>
+              <h2 className="font-sans text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                Welcome to the Admin Console
+              </h2>
+              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+                Manage categories, products, orders, and store settings from one place. Pick a section below or use the
+                sidebar.
+              </p>
+            </div>
           </div>
         </div>
-      </header>
-      <main className="container mx-auto px-4 py-8">
-        <h2 className="text-lg font-medium text-foreground mb-6">Apps</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {APP_TILES.map(({ id, name, icon: Icon, color, path }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => handleTileClick(path)}
-              className="flex flex-col items-center gap-3 p-4 rounded-xl bg-card border border-border shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <span
-                className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-lg ${color}`}
-                aria-hidden
+
+        <div>
+          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Sections</p>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {SECTIONS.map(({ id, name, description, icon: Icon, iconWrap, path }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => navigate(path)}
+                className="group flex w-full items-stretch gap-4 rounded-2xl border border-border bg-card p-4 text-left shadow-sm transition-colors hover:border-primary/25 hover:bg-muted/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
-                <Icon className="h-7 w-7" />
-              </span>
-              <span className="text-sm font-medium text-foreground text-center leading-tight">
-                {name}
-              </span>
-            </button>
-          ))}
+                <span
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${iconWrap}`}
+                  aria-hidden
+                >
+                  <Icon className="h-6 w-6" />
+                </span>
+                <div className="min-w-0 flex-1 py-0.5">
+                  <p className="font-sans font-semibold text-foreground">{name}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+                </div>
+                <ChevronRight
+                  className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </button>
+            ))}
+          </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }

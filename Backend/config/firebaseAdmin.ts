@@ -1,6 +1,3 @@
-/**
- * Firebase Admin SDK for verifying phone auth ID tokens (Pakistan +92 only)
- */
 import admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';

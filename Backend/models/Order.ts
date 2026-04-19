@@ -19,8 +19,8 @@ export interface IOrderLineItem {
 }
 
 export interface IOrder extends Document {
-  orderNumber: string; // Server-generated, unique (e.g. ORD-XXXXXXXXXX); set on first save
-  userId: mongoose.Types.ObjectId;
+  orderNumber: string;
+  userId?: mongoose.Types.ObjectId;
   status: OrderStatus;
   lineItems: IOrderLineItem[];
   subtotal: number;
@@ -28,7 +28,7 @@ export interface IOrder extends Document {
   discountCode?: string;
   total: number;
   currency: string;
-  shippingAddress?: mongoose.Types.ObjectId | Record<string, unknown>; // ref or snapshot
+  shippingAddress?: mongoose.Types.ObjectId | Record<string, unknown>;
   billingAddress?: Record<string, unknown>;
   transactionIds: string[];
   createdAt: Date;
@@ -58,7 +58,7 @@ const orderSchema = new Schema<IOrder>(
     userId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: false,
       index: true,
     },
     status: {
@@ -86,7 +86,6 @@ const orderSchema = new Schema<IOrder>(
 
 orderSchema.index({ userId: 1, createdAt: -1 });
 
-// Generate orderNumber for new orders (server-generated)
 orderSchema.pre('save', async function (this: IOrder) {
   const order = this;
   if (!order.orderNumber || String(order.orderNumber).trim() === '') {

@@ -1,7 +1,3 @@
-/**
- * Email Service - Switchable between Docker SMTP (dev) and production SMTP/API
- */
-
 import nodemailer from 'nodemailer';
 import { getEmailConfig } from '../utils/env.js';
 import { getVerificationEmailTemplate, getVerificationEmailText } from '../utils/emailTemplates.js';
@@ -18,9 +14,6 @@ interface SendEmailResult {
   error?: string;
 }
 
-/**
- * Create email transporter based on environment configuration
- */
 const createTransporter = () => {
   const config = getEmailConfig();
 
@@ -33,19 +26,12 @@ const createTransporter = () => {
         user: config.smtp.user,
         pass: config.smtp.pass,
       } : undefined,
-      // For Docker SMTP servers (MailHog/Mailpit), no auth is needed
-      // For production SMTP, auth will be provided via env vars
     });
   }
 
-  // Future: Add API-based email providers (SendGrid, Mailgun, etc.)
-  // For now, default to SMTP
   throw new Error(`Email provider "${config.provider}" is not yet implemented`);
 };
 
-/**
- * Send email verification email
- */
 export const sendVerificationEmail = async (
   params: SendVerificationEmailParams
 ): Promise<SendEmailResult> => {
@@ -82,9 +68,6 @@ export const sendVerificationEmail = async (
   }
 };
 
-/**
- * Verify email transporter connection (useful for health checks)
- */
 export const verifyEmailConnection = async (): Promise<boolean> => {
   try {
     const transporter = createTransporter();

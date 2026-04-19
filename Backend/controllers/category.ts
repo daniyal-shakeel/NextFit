@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Category from '../models/Category.js';
 import { HTTP_STATUS } from '../constants/errorCodes.js';
 import { MONGODB_ERROR_CODES, MONGODB_ERROR_NAMES } from '../constants/errorCodes.js';
+import { uploadToCloudinary } from '../config/cloudinary.js';
 
 function slugify(text: string): string {
   return text
@@ -12,10 +13,20 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9-]/g, '');
 }
 
-/**
- * GET /api/categories
- * List all categories. Requires category.read permission.
- */
+function isValidCloudinaryUrl(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false;
+  const s = raw.trim();
+  if (!s || s.length > 2000) return false;
+  if (s.startsWith('data:')) return false;
+  try {
+    const u = new URL(s);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    return u.hostname === 'res.cloudinary.com';
+  } catch {
+    return false;
+  }
+}
+
 export const getCategories = async (_req: Request, res: Response): Promise<Response> => {
   try {
     const categories = await Category.find().sort({ createdAt: -1 }).lean();
@@ -41,10 +52,6 @@ export const getCategories = async (_req: Request, res: Response): Promise<Respo
   }
 };
 
-/**
- * GET /api/categories/:id
- * Get one category. Requires category.read permission.
- */
 export const getCategory = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
@@ -83,10 +90,6 @@ export const getCategory = async (req: Request, res: Response): Promise<Response
   }
 };
 
-/**
- * POST /api/categories
- * Add a category. Requires category.create permission in token payload.
- */
 export const addCategory = async (req: Request, res: Response): Promise<Response> => {
   try {
     if (!req.body || typeof req.body !== 'object') {
@@ -109,6 +112,12 @@ export const addCategory = async (req: Request, res: Response): Promise<Response
       return res.status(HTTP_STATUS.BAD_REQUEST).json({
         success: false,
         message: 'Category image URL is required',
+      });
+    }
+    if (!isValidCloudinaryUrl(imageUrl)) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        success: false,
+        message: 'Invalid image. Please upload via the admin panel.',
       });
     }
 
@@ -164,10 +173,6 @@ export const addCategory = async (req: Request, res: Response): Promise<Response
   }
 };
 
-/**
- * PUT /api/categories/:id
- * Update a category. Requires category.update permission.
- */
 export const updateCategory = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
@@ -191,7 +196,7 @@ export const updateCategory = async (req: Request, res: Response): Promise<Respo
           success: false,
           message: 'Category name must be a non-empty string',
         });
-        }
+      }
       category.name = name.trim();
       category.slug = slugify(name);
     }
@@ -200,6 +205,12 @@ export const updateCategory = async (req: Request, res: Response): Promise<Respo
         return res.status(HTTP_STATUS.BAD_REQUEST).json({
           success: false,
           message: 'Category image URL must be a non-empty string',
+        });
+      }
+      if (!isValidCloudinaryUrl(imageUrl)) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: 'Invalid image. Please upload via the admin panel.',
         });
       }
       category.imageUrl = imageUrl.trim();
@@ -246,10 +257,35 @@ export const updateCategory = async (req: Request, res: Response): Promise<Respo
   }
 };
 
-/**
- * DELETE /api/categories/:id
- * Delete a category. Requires category.delete permission.
- */
+export const uploadCategoryImage = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const file = req.file as Express.Multer.File | undefined;
+    if (!file || !file.buffer) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        success: false,
+        message: 'No image file provided. Upload a JPEG, PNG, or WebP (max 2MB).',
+      });
+    }
+    const url = await uploadToCloudinary(file.buffer, 'nextfit/categories');
+    if (!url) {
+      return res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({
+        success: false,
+        message: 'Image upload is temporarily unavailable. Please try again later.',
+      });
+    }
+    return res.status(HTTP_STATUS.OK).json({
+      success: true,
+      data: { imageUrl: url },
+    });
+  } catch (err) {
+    console.error('uploadCategoryImage error:', err);
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Failed to upload image',
+    });
+  }
+};
+
 export const deleteCategory = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;

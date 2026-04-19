@@ -1,10 +1,6 @@
 import { IUser, AuthMethod } from '../models/User.js';
 import { ValidationResult } from './validation.js';
 
-/**
- * Validate user data based on authentication method
- * Ensures "one way only" registration constraint
- */
 export const validateUserByAuthMethod = (
   authMethod: AuthMethod,
   data: {
@@ -14,7 +10,6 @@ export const validateUserByAuthMethod = (
     googleId?: string;
   }
 ): ValidationResult => {
-  // Validate authMethod
   if (!Object.values(AuthMethod).includes(authMethod)) {
     return {
       isValid: false,
@@ -22,7 +17,6 @@ export const validateUserByAuthMethod = (
     };
   }
 
-  // Validate based on method
   switch (authMethod) {
     case AuthMethod.EMAIL:
       if (!data.email) {
@@ -31,7 +25,6 @@ export const validateUserByAuthMethod = (
       if (!data.password) {
         return { isValid: false, error: 'Password is required for email authentication' };
       }
-      // Ensure other method fields are not provided
       if (data.phone) {
         return { isValid: false, error: 'Phone cannot be used with email authentication' };
       }
@@ -44,7 +37,6 @@ export const validateUserByAuthMethod = (
       if (!data.phone) {
         return { isValid: false, error: 'Phone number is required for phone authentication' };
       }
-      // Ensure other method fields are not provided
       if (data.email || data.password) {
         return { isValid: false, error: 'Email/Password cannot be used with phone authentication' };
       }
@@ -57,7 +49,6 @@ export const validateUserByAuthMethod = (
       if (!data.googleId) {
         return { isValid: false, error: 'Google ID is required for Google authentication' };
       }
-      // Ensure other method fields are not provided
       if (data.email || data.password) {
         return { isValid: false, error: 'Email/Password cannot be used with Google authentication' };
       }
@@ -70,17 +61,10 @@ export const validateUserByAuthMethod = (
   return { isValid: true };
 };
 
-/**
- * Check if user can switch authentication methods
- * Returns false - users cannot switch methods after registration
- */
 export const canSwitchAuthMethod = (): boolean => {
   return false; // One way only - cannot switch
 };
 
-/**
- * Get required fields for a specific auth method
- */
 export const getRequiredFieldsForAuthMethod = (authMethod: AuthMethod): string[] => {
   switch (authMethod) {
     case AuthMethod.EMAIL:
@@ -94,9 +78,6 @@ export const getRequiredFieldsForAuthMethod = (authMethod: AuthMethod): string[]
   }
 };
 
-/**
- * Check if user has completed registration for their auth method
- */
 export const isRegistrationComplete = (user: Partial<IUser>): boolean => {
   if (!user.authMethod) return false;
 

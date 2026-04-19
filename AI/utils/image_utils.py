@@ -1,4 +1,4 @@
-from ai_utils.image_utils import (  # noqa: F401
+from ai_utils.image_utils import (
     TARGET_SIZE,
     decode_base64_image,
     encode_image_base64,

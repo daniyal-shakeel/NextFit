@@ -1,7 +1,3 @@
-/**
- * Permission strings for JWT payload and route guards.
- * Token payload may include: { id, email, authMethod, permissions?: string[] }
- */
 
 export const PERMISSIONS = {
   CATEGORY_CREATE: 'category.create',
@@ -13,16 +9,16 @@ export const PERMISSIONS = {
   PRODUCT_UPDATE: 'product.update',
   PRODUCT_DELETE: 'product.delete',
   AI_SUGGEST: 'ai.suggest',
-  // Customer (admin: list, get one, suspend/unsuspend)
   CUSTOMER_READ_ALL: 'customer.read_all',
   CUSTOMER_READ_ONE: 'customer.read_one',
   CUSTOMER_UPDATE_STATUS: 'customer.update_status',
-  // Order (admin)
   ORDER_READ: 'order.read',
   ORDER_UPDATE: 'order.update',
   INVENTORY_READ: 'inventory.read',
   INVENTORY_UPDATE: 'inventory.update',
   REPORTS_READ: 'reports.read',
+  SETTINGS_READ: 'settings.read',
+  SETTINGS_UPDATE: 'settings.update',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

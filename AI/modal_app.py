@@ -119,7 +119,7 @@ class TryOnService:
             cache_dir="/app/models/cache",
             token=hf_token,
             resume_download=True,
-            local_dir=None,  # important: let HF manage snapshot layout
+            local_dir=None,
             local_dir_use_symlinks=False,
         )
         print("IDM-VTON snapshot cached")
@@ -139,12 +139,10 @@ class TryOnService:
             hf_token = os.environ.get("HF_TOKEN")
             MODEL_ID = "yisol/IDM-VTON"
 
-            # Import custom IDM-VTON modules only after sys.path is ready
             from src.tryon_pipeline import StableDiffusionXLInpaintPipeline as TryonPipeline
             from src.unet_hacked_garmnet import UNet2DConditionModel as UNet2DConditionModel_ref
             from src.unet_hacked_tryon import UNet2DConditionModel
 
-            # Make sure the repo is fully present before component loading
             self._download_main_model_snapshot(hf_token)
             self._ensure_aux_models(hf_token)
 
@@ -178,9 +176,6 @@ class TryOnService:
                 local_files_only=True,
             ).to(self.device)
 
-            # IMPORTANT:
-            # IDM-VTON repo may not contain a standard preprocessor_config.json
-            # So we explicitly provide a CLIP image processor from the base CLIP repo.
             print("Loading CLIP image processor...")
             self.image_processor = CLIPImageProcessor.from_pretrained(
                 "openai/clip-vit-large-patch14",
@@ -202,8 +197,6 @@ class TryOnService:
                     local_files_only=True,
                 ).to(self.device)
             except TypeError:
-                # Fallback in case this custom pipeline doesn't accept
-                # image_encoder/feature_extractor kwargs explicitly.
                 print("Pipeline rejected explicit image processor kwargs, retrying minimal load...")
                 self.pipe = TryonPipeline.from_pretrained(
                     MODEL_ID,
@@ -215,7 +208,6 @@ class TryOnService:
                     local_files_only=True,
                 ).to(self.device)
 
-                # Best-effort patching for custom pipeline attributes
                 if hasattr(self.pipe, "image_encoder") and self.pipe.image_encoder is None:
                     self.pipe.image_encoder = self.image_encoder
                 if hasattr(self.pipe, "feature_extractor") and self.pipe.feature_extractor is None:
@@ -223,7 +215,6 @@ class TryOnService:
                 if hasattr(self.pipe, "image_processor") and self.pipe.image_processor is None:
                     self.pipe.image_processor = self.image_processor
 
-            # Final safety patch in case pipeline loaded but left attrs empty
             if hasattr(self.pipe, "image_encoder") and self.pipe.image_encoder is None:
                 self.pipe.image_encoder = self.image_encoder
             if hasattr(self.pipe, "feature_extractor") and self.pipe.feature_extractor is None:
@@ -236,7 +227,6 @@ class TryOnService:
 
     @modal.fastapi_endpoint(method="GET")
     def health(self):
-        # Lightweight health check, not full model boot
         return {
             "status": "ok",
             "service": "nextfit-ai-tryon",
@@ -343,8 +333,7 @@ class TryOnService:
                     ip_adapter_image=garment_img.resize((768, 1024)),
                     guidance_scale=2.0,
                 )
-
-                # Handle both tuple/list and pipeline output objects safely
+    
                 if isinstance(out, (list, tuple)):
                     result = out[0][0]
                 elif hasattr(out, "images"):

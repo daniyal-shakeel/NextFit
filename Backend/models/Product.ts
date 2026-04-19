@@ -1,8 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
-/**
- * Product document interface
- */
 export interface IProduct extends Document {
   name: string;
   slug: string;
@@ -15,7 +12,7 @@ export interface IProduct extends Document {
   rating: number;
   reviewCount: number;
   isCustomizable: boolean;
-  tags: string[]; // e.g. "New", "Trending"
+  tags: string[]; 
   stockQuantity: number;
   lowStockThreshold: number;
   createdAt: Date;
@@ -114,7 +111,6 @@ const productSchema = new Schema<IProduct>(
   }
 );
 
-// Index for listing and filtering (slug index from field unique: true)
 productSchema.index({ categoryId: 1, createdAt: -1 });
 productSchema.index({ tags: 1 });
 productSchema.index({ basePrice: 1 });

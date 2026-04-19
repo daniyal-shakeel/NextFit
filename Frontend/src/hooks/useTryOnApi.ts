@@ -1,9 +1,17 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 
 const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+  import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001/api';
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === 'AbortError') ||
+    (err instanceof Error && err.name === 'AbortError')
+  );
+}
 
 export function useTryOnApi() {
+  const abortRef = useRef<AbortController | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [preprocessedPerson, setPreprocessedPerson] = useState<string | null>(null);
@@ -12,11 +20,19 @@ export function useTryOnApi() {
   const [error, setError] = useState<string | null>(null);
   const [processingTime, setProcessingTime] = useState<number | null>(null);
 
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
   const tryOn = async (
     personImageBase64: string,
     garmentImageBase64: string,
     category = 'upper_body'
   ) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setIsLoading(true);
     setError(null);
     setResultImage(null);
@@ -24,14 +40,16 @@ export function useTryOnApi() {
     setPreprocessedGarment(null);
     setRawResult(null);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/tryon`, {
+      const response = await fetch(`${BACKEND_URL}/tryon`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           person_image: personImageBase64,
           garment_image: garmentImageBase64,
           category,
         }),
+        signal: controller.signal,
       });
 
       if (response.status === 504) {
@@ -84,23 +102,30 @@ export function useTryOnApi() {
 
       setProcessingTime(data.processing_time);
     } catch (err: unknown) {
+      if (isAbortError(err)) {
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Try-on failed');
     } finally {
       setIsLoading(false);
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
     }
   };
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setResultImage(null);
     setPreprocessedPerson(null);
     setPreprocessedGarment(null);
     setRawResult(null);
     setError(null);
     setProcessingTime(null);
-  };
+  }, []);
 
   return {
     tryOn,
+    cancel,
     isLoading,
     resultImage,
     preprocessedPerson,

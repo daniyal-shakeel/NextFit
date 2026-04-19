@@ -9,13 +9,12 @@ import { useToast } from '@/hooks/use-toast';
 import { User as UserType } from '@/lib/types';
 import { getAvatarUrl } from '@/lib/api';
 
-const AVATAR_MAX_SIZE = 10 * 1024 * 1024; // 10MB
+const AVATAR_MAX_SIZE = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const NAME_MAX = 100;
 const PHONE_REST_MAX = 20;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Parse combined phone (e.g. +923001234567) into country code and rest. */
 function parsePhone(combined: string | undefined): { code: string; rest: string } {
   if (!combined || !combined.trim()) return { code: '+92', rest: '' };
   const s = combined.trim();
@@ -192,7 +191,6 @@ export const ProfileInfo = ({ user, onUpdate, onAvatarUpload }: ProfileInfoProps
         )}
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Avatar Section */}
         <div className="flex items-center gap-6">
           <div className="relative">
             <Avatar className="h-24 w-24">
@@ -222,7 +220,6 @@ export const ProfileInfo = ({ user, onUpdate, onAvatarUpload }: ProfileInfoProps
           </div>
         </div>
 
-        {/* Form Fields */}
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="name">Full Name</Label>

@@ -3,7 +3,6 @@ import express from 'express';
 
 const router = Router();
 
-/** Base64 JSON payloads for try-on can exceed default 10mb */
 router.use(express.json({ limit: '25mb' }));
 
 const PERSON_MAX_BYTES = 10 * 1024 * 1024;

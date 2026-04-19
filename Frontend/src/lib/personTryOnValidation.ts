@@ -1,15 +1,15 @@
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
+import { getMediapipeVisionWasmRoot } from '@/lib/mediapipeVisionWasm';
 
 const MODEL_PATH =
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
-const WASM_PATH = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm';
 
 let landmarkerPromise: Promise<PoseLandmarker> | null = null;
 
 function getPoseLandmarkerImage(): Promise<PoseLandmarker> {
   if (!landmarkerPromise) {
     landmarkerPromise = (async () => {
-      const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
+      const vision = await FilesetResolver.forVisionTasks(getMediapipeVisionWasmRoot());
       return PoseLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: MODEL_PATH },
         runningMode: 'IMAGE',
@@ -20,7 +20,6 @@ function getPoseLandmarkerImage(): Promise<PoseLandmarker> {
   return landmarkerPromise;
 }
 
-/** Average luma of image (0–255). */
 export async function getImageAverageBrightness(
   imageDataUrl: string
 ): Promise<number> {
@@ -66,7 +65,6 @@ export async function validatePersonPoseFromDataUrl(
     return { ok: false, message: PERSON_NOT_VISIBLE };
   }
 
-  // Load image into a hidden canvas for IMAGE-mode detection
   const canvas = document.createElement('canvas');
   canvas.width = img.naturalWidth || img.width;
   canvas.height = img.naturalHeight || img.height;

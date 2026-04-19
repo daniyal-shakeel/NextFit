@@ -4,6 +4,7 @@ import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 import { HTTP_STATUS } from '../constants/errorCodes.js';
 import { MONGODB_ERROR_CODES, MONGODB_ERROR_NAMES } from '../constants/errorCodes.js';
+import { getOrCreateAdminSettings } from '../services/adminSettingsService.js';
 
 function slugify(text: string): string {
   return text
@@ -67,10 +68,6 @@ function toProductResponse(p: {
   };
 }
 
-/**
- * GET /api/products/featured
- * Public. Returns 4 products: at least 1 with tags, rest latest by createdAt.
- */
 export const getFeaturedProducts = async (_req: Request, res: Response): Promise<Response> => {
   try {
     const limit = 4;
@@ -107,10 +104,6 @@ export const getFeaturedProducts = async (_req: Request, res: Response): Promise
   }
 };
 
-/**
- * GET /api/products/public
- * Public. List products. Optional query: categoryId (ObjectId or slug).
- */
 export const getProductsPublic = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { categoryId, categorySlug } = req.query;
@@ -137,13 +130,9 @@ export const getProductsPublic = async (req: Request, res: Response): Promise<Re
   }
 };
 
-/**
- * GET /api/products
- * List products. Optional query: categoryId. Requires product.read.
- */
 export const getProducts = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { categoryId } = req.query;
+    const { categoryId, limit: limitRaw, skip: skipRaw } = req.query;
     const filter: Record<string, unknown> = {};
     if (categoryId) {
       if (typeof categoryId !== 'string' || !mongoose.isValidObjectId(categoryId)) {
@@ -154,11 +143,53 @@ export const getProducts = async (req: Request, res: Response): Promise<Response
       }
       filter.categoryId = new mongoose.Types.ObjectId(categoryId);
     }
-    const products = await Product.find(filter).sort({ createdAt: -1 }).populate('categoryId', 'name slug').lean();
-    return res.status(HTTP_STATUS.OK).json({
+
+    let limit: number | undefined;
+    let skip = 0;
+    if (limitRaw !== undefined && limitRaw !== '') {
+      const n = Number(limitRaw);
+      if (!Number.isFinite(n) || n < 1 || n > 500) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: 'Invalid limit query (use 1–500)',
+        });
+      }
+      limit = Math.floor(n);
+    }
+    if (skipRaw !== undefined && skipRaw !== '') {
+      const s = Number(skipRaw);
+      if (!Number.isFinite(s) || s < 0) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: 'Invalid skip query',
+        });
+      }
+      skip = Math.floor(s);
+    }
+
+    let productQuery = Product.find(filter).sort({ createdAt: -1 }).populate('categoryId', 'name slug');
+    if (limit !== undefined) {
+      productQuery = productQuery.skip(skip).limit(limit);
+    }
+    const products = await productQuery.lean();
+
+    const payload: {
+      success: boolean;
+      data: ReturnType<typeof toProductResponse>[];
+      total?: number;
+      hasMore?: boolean;
+    } = {
       success: true,
       data: products.map(toProductResponse),
-    });
+    };
+
+    if (limit !== undefined) {
+      const total = await Product.countDocuments(filter);
+      payload.total = total;
+      payload.hasMore = skip + products.length < total;
+    }
+
+    return res.status(HTTP_STATUS.OK).json(payload);
   } catch (err) {
     console.error('getProducts error:', err);
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -168,10 +199,6 @@ export const getProducts = async (req: Request, res: Response): Promise<Response
   }
 };
 
-/**
- * GET /api/products/public/:id
- * Public. Get one product by ID.
- */
 export const getProductPublic = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
@@ -201,10 +228,6 @@ export const getProductPublic = async (req: Request, res: Response): Promise<Res
   }
 };
 
-/**
- * GET /api/products/:id
- * Get one product. Requires product.read.
- */
 export const getProduct = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
@@ -234,10 +257,6 @@ export const getProduct = async (req: Request, res: Response): Promise<Response>
   }
 };
 
-/**
- * POST /api/products
- * Create product. Requires product.create. Validates category exists, slug unique. Increments category productCount.
- */
 export const addProduct = async (req: Request, res: Response): Promise<Response> => {
   try {
     if (!req.body || typeof req.body !== 'object') {
@@ -328,6 +347,8 @@ export const addProduct = async (req: Request, res: Response): Promise<Response>
       }
     }
 
+    const adminDefaults = await getOrCreateAdminSettings();
+
     const product = await Product.create({
       name: name.trim(),
       slug,
@@ -341,8 +362,8 @@ export const addProduct = async (req: Request, res: Response): Promise<Response>
       isCustomizable: Boolean(isCustomizable),
       rating: Math.min(5, Math.max(0, ensureNumber(rating, 0, 5) ?? 0)),
       reviewCount: Math.max(0, ensureNumber(reviewCount, 0) ?? 0),
-      stockQuantity: 0,
-      lowStockThreshold: 0,
+      stockQuantity: adminDefaults.defaultStockQuantity,
+      lowStockThreshold: adminDefaults.defaultLowStockThreshold,
     });
 
     await Category.findByIdAndUpdate(categoryId, { $inc: { productCount: 1 } });
@@ -394,10 +415,7 @@ export const addProduct = async (req: Request, res: Response): Promise<Response>
   }
 };
 
-/**
- * PUT /api/products/:id
- * Update product. Requires product.update. Updates category productCount if categoryId changed.
- */
+
 export const updateProduct = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
@@ -447,20 +465,24 @@ export const updateProduct = async (req: Request, res: Response): Promise<Respon
           message: 'Product name must be a non-empty string',
         });
       }
-      product.name = name.trim();
-      const newSlug = slugify(name);
-      if (newSlug) {
-        const existing = await Product.findOne({
-          slug: newSlug,
-          _id: { $ne: product._id },
-        });
-        if (existing) {
-          return res.status(HTTP_STATUS.CONFLICT).json({
-            success: false,
-            message: 'A product with this name (slug) already exists',
+      const trimmedName = name.trim();
+      const nameChanged = trimmedName !== product.name;
+      product.name = trimmedName;
+      if (nameChanged) {
+        const newSlug = slugify(trimmedName);
+        if (newSlug) {
+          const existing = await Product.findOne({
+            slug: newSlug,
+            _id: { $ne: product._id },
           });
+          if (existing) {
+            return res.status(HTTP_STATUS.CONFLICT).json({
+              success: false,
+              message: 'A product with this name (slug) already exists',
+            });
+          }
+          product.slug = newSlug;
         }
-        product.slug = newSlug;
       }
     }
     if (description !== undefined) {
@@ -583,10 +605,6 @@ export const updateProduct = async (req: Request, res: Response): Promise<Respon
   }
 };
 
-/**
- * DELETE /api/products/:id
- * Decrement category productCount, then delete product. Requires product.delete.
- */
 export const deleteProduct = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;

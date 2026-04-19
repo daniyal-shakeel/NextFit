@@ -1,119 +1,84 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
-/**
- * Registration/Authentication methods
- * User can only register using ONE of these methods
- */
 export enum AuthMethod {
-  EMAIL = 'email',      // Email + Password
-  PHONE = 'phone',      // Phone + OTP verification
-  GOOGLE = 'google',    // Google OAuth
+  EMAIL = 'email',      
+  PHONE = 'phone',      
+  GOOGLE = 'google',    
 }
 
-/** Account status for customer profile (admin can suspend/unsuspend) */
 export enum AccountStatus {
   ACTIVE = 'active',
   SUSPENDED = 'suspended',
   DELETED = 'deleted',
 }
 
-/** Address label for shipping */
 export type AddressLabel = 'home' | 'office' | 'other';
 
-/** Shipping address (embedded) */
 export interface IShippingAddress {
   label: AddressLabel;
   street: string;
   city: string;
-  state: string;
+  province: string;
   postalCode: string;
-  country: string;
   deliveryInstructions?: string;
   isDefault: boolean;
 }
 
-/** Billing address (single embedded) */
 export interface IBillingAddress {
   street: string;
   city: string;
-  state: string;
+  province: string;
   postalCode: string;
-  country: string;
 }
 
-/** Stored payment method - token/reference only, NOT full card details */
 export interface IPaymentMethod {
-  paymentToken: string;   // Gateway token/reference
-  brand?: string;        // e.g. visa, mastercard
+  paymentToken: string;   
+  brand?: string;        
   last4?: string;
   expiryMonth?: number;
   expiryYear?: number;
   isDefault: boolean;
 }
 
-/** Body measurements for size recommendations (inches, cm, kg) */
 export interface IBodyMeasurements {
-  chest?: number;             // inches
-  waist?: number;             // inches
-  hips?: number;              // inches
-  height?: number;            // cm
-  weight?: number;            // kg
+  chest?: number;             
+  waist?: number;             
+  hips?: number;              
+  height?: number;            
+  weight?: number;            
   preferredShirtSize?: string;
   preferredPantsSize?: string;
 }
 
-/**
- * User interface
- * Enforces single registration method constraint
- */
 export interface IUser extends Document {
-  // ============================================
-  // Registration Method (REQUIRED - One way only)
-  // ============================================
+
   authMethod: AuthMethod;
 
-  // ============================================
-  // Email Method Fields (Required only if authMethod === 'email')
-  // ============================================
-  email?: string;              // Required for EMAIL method
-  password?: string;          // Required for EMAIL method (hashed)
-  isEmailVerified?: boolean;  // Email verification status
-  emailVerifiedAt?: Date;    // Email verification timestamp
+  email?: string;              
+  password?: string;          
+  isEmailVerified?: boolean;  
+  emailVerifiedAt?: Date;    
 
-  // ============================================
-  // Phone Method Fields (Required only if authMethod === 'phone')
-  // Single source of truth: country code + rest (no duplicate full number).
-  // ============================================
-  phoneCountryCode?: string;  // Country code (e.g. '+1', '+92')
-  phone?: string;            // Rest of number only, no country code (e.g. '3001234567'). Required for PHONE; optional for profile (email/google).
-  isPhoneVerified?: boolean;  // OTP verification status
-  otpCode?: string;           // Current OTP (hashed, temporary)
-  otpExpiresAt?: Date;        // OTP expiration time
-  otpAttempts?: number;       // Failed OTP attempts (for rate limiting)
+  phoneCountryCode?: string;  
+  phone?: string;            
+  isPhoneVerified?: boolean;  
+  otpCode?: string;           
+  otpExpiresAt?: Date;        
+  otpAttempts?: number;       
 
-  // ============================================
-  // Google OAuth Fields (Required only if authMethod === 'google')
-  // ============================================
-  googleId?: string;          // Required for GOOGLE method (unique)
-  googleEmail?: string;       // Email from Google account
-  googleAvatar?: string;      // Profile picture URL from Google
+  googleId?: string;          
+  googleEmail?: string;       
+  googleAvatar?: string;      
 
-  // ============================================
-  // Common Fields (All methods)
-  // ============================================
-  name?: string;              // User's full name
-  avatar?: string;            // Profile photo URL (custom or Google)
-  isActive: boolean;          // Synced with accountStatus (active => true)
-  lastLoginAt?: Date;         // Last login timestamp
+  name?: string;              
+  avatar?: string;            
+  isActive: boolean;          
+  lastLoginAt?: Date;         
   createdAt: Date;
   updatedAt: Date;
-
-  // ============================================
-  // Customer Profile (server-generated ID, status, addresses, payment)
-  // ============================================
-  customerId?: string;        // Server-generated, unique (e.g. CUS-XXXXXXXXXX); set on first save
-  accountStatus: AccountStatus; // active | suspended | deleted
-  deletedAt?: Date;           // Set when accountStatus is deleted
+  customerId?: string;        
+  accountStatus: AccountStatus; 
+  deletedAt?: Date;           
   shippingAddresses: IShippingAddress[];
   defaultShippingAddressIndex: number;
   billingAddress?: IBillingAddress;
@@ -123,19 +88,13 @@ export interface IUser extends Document {
 
 const userSchema = new Schema<IUser>(
   {
-    // ============================================
-    // Registration Method
-    // ============================================
     authMethod: {
       type: String,
       enum: Object.values(AuthMethod),
       required: [true, 'Authentication method is required'],
-      immutable: true, // Cannot be changed after registration
+      immutable: true, 
     },
 
-    // ============================================
-    // Email Method Fields
-    // ============================================
     email: {
       type: String,
       lowercase: true,
@@ -147,7 +106,7 @@ const userSchema = new Schema<IUser>(
     password: {
       type: String,
       minlength: [6, 'Password must be at least 6 characters'],
-      select: false, // Don't return password in queries by default
+      select: false, 
       required: function (this: IUser) {
         return this.authMethod === AuthMethod.EMAIL;
       },
@@ -161,13 +120,9 @@ const userSchema = new Schema<IUser>(
       default: null,
     },
 
-    // ============================================
-    // Phone Method Fields (phone = rest only; phoneCountryCode = e.g. '+92')
-    // ============================================
     phoneCountryCode: {
       type: String,
       trim: true,
-      default: '+1',
       maxlength: [6, 'Country code cannot exceed 6 characters'],
     },
     phone: {
@@ -184,7 +139,7 @@ const userSchema = new Schema<IUser>(
     },
     otpCode: {
       type: String,
-      select: false, // Don't return OTP in queries by default
+      select: false, 
     },
     otpExpiresAt: {
       type: Date,
@@ -195,9 +150,6 @@ const userSchema = new Schema<IUser>(
       min: 0,
     },
 
-    // ============================================
-    // Google OAuth Fields
-    // ============================================
     googleId: {
       type: String,
       required: function (this: IUser) {
@@ -214,9 +166,6 @@ const userSchema = new Schema<IUser>(
       trim: true,
     },
 
-    // ============================================
-    // Common Fields
-    // ============================================
     name: {
       type: String,
       trim: true,
@@ -235,14 +184,11 @@ const userSchema = new Schema<IUser>(
       type: Date,
     },
 
-    // ============================================
-    // Customer Profile
-    // ============================================
     customerId: {
       type: String,
       trim: true,
       unique: true,
-      sparse: true, // Allow null for backward compat until migration
+      sparse: true, 
     },
     accountStatus: {
       type: String,
@@ -259,9 +205,8 @@ const userSchema = new Schema<IUser>(
           label: { type: String, enum: ['home', 'office', 'other'], default: 'home' },
           street: { type: String, trim: true, default: '' },
           city: { type: String, trim: true, default: '' },
-          state: { type: String, trim: true, default: '' },
+          province: { type: String, trim: true, default: '' },
           postalCode: { type: String, trim: true, default: '' },
-          country: { type: String, trim: true, default: '' },
           deliveryInstructions: { type: String, trim: true, default: '' },
           isDefault: { type: Boolean, default: false },
         },
@@ -280,9 +225,8 @@ const userSchema = new Schema<IUser>(
       type: {
         street: { type: String, trim: true, default: '' },
         city: { type: String, trim: true, default: '' },
-        state: { type: String, trim: true, default: '' },
+        province: { type: String, trim: true, default: '' },
         postalCode: { type: String, trim: true, default: '' },
-        country: { type: String, trim: true, default: '' },
       },
       default: null,
     },
@@ -320,33 +264,21 @@ const userSchema = new Schema<IUser>(
   }
 );
 
-// ============================================
-// Indexes for Unique Constraints
-// ============================================
-// Email must be unique (when present)
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
 
-// Phone number (countryCode + rest) must be unique when both present (no duplicate entries)
 userSchema.index({ phoneCountryCode: 1, phone: 1 }, { unique: true, sparse: true });
 
-// Google ID must be unique (when present)
 userSchema.index({ googleId: 1 }, { unique: true, sparse: true });
 
-// Compound index to ensure one registration method per user
 userSchema.index({ authMethod: 1 });
 
-// customerId index is created by field option unique: true, sparse: true above
 userSchema.index({ accountStatus: 1 });
 
-// ============================================
-// Pre-save: generate customerId, sync accountStatus/isActive
-// ============================================
 userSchema.pre('save', async function (this: IUser) {
   const user = this;
   if (!user.accountStatus || !Object.values(AccountStatus).includes(user.accountStatus)) {
     user.accountStatus = AccountStatus.ACTIVE;
   }
-  // Sync isActive with accountStatus
   user.isActive = user.accountStatus === AccountStatus.ACTIVE;
   if (user.accountStatus === AccountStatus.DELETED && !user.deletedAt) {
     user.deletedAt = new Date();
@@ -354,7 +286,6 @@ userSchema.pre('save', async function (this: IUser) {
   if (user.accountStatus !== AccountStatus.DELETED) {
     user.deletedAt = undefined;
   }
-  // Generate customerId for new users (server-generated)
   if (!user.customerId || String(user.customerId).trim() === '') {
     const { generateCustomerId } = await import('../utils/customerId.js');
     let candidate: string;
@@ -371,32 +302,22 @@ userSchema.pre('save', async function (this: IUser) {
   }
 });
 
-// ============================================
-// Pre-save Validation Hook
-// Efficiently enforces "one method only" constraint
-// All validation happens here to avoid TypeScript issues
-// ============================================
 userSchema.pre('save', async function (this: IUser) {
   const user = this;
 
-  // Validate authentication method
   if (!user.authMethod || !Object.values(AuthMethod).includes(user.authMethod)) {
     throw new Error('Invalid authentication method');
   }
 
-  // Validate and clean based on authMethod
   if (user.authMethod === AuthMethod.EMAIL) {
-    // Validate required fields for EMAIL method
     if (!user.email || typeof user.email !== 'string' || user.email.trim().length === 0) {
       throw new Error('Email is required for email authentication method');
     }
-    // Only validate password if it's being modified (new document or password field changed)
     if (user.isNew || user.isModified('password')) {
       if (!user.password || typeof user.password !== 'string' || user.password.length < 6) {
         throw new Error('Password is required and must be at least 6 characters for email authentication method');
       }
     }
-    // Clear other *auth* method fields only; keep optional profile phone (phoneCountryCode + phone) if set
     user.isPhoneVerified = undefined;
     user.otpCode = undefined;
     user.otpExpiresAt = undefined;
@@ -404,41 +325,51 @@ userSchema.pre('save', async function (this: IUser) {
     user.googleId = undefined;
     user.googleEmail = undefined;
     user.googleAvatar = undefined;
+    const hasProfilePhone =
+      typeof user.phone === 'string' &&
+      user.phone.trim().length > 0 &&
+      typeof user.phoneCountryCode === 'string' &&
+      user.phoneCountryCode.trim().length > 0;
+    if (!hasProfilePhone) {
+      user.set('phone', undefined);
+      user.set('phoneCountryCode', undefined);
+    }
   } else if (user.authMethod === AuthMethod.PHONE) {
-    // Validate required fields for PHONE method
     if (!user.phone || typeof user.phone !== 'string' || user.phone.trim().length === 0) {
       throw new Error('Phone number (rest) is required for phone authentication method');
     }
     if (!user.phoneCountryCode || typeof user.phoneCountryCode !== 'string' || user.phoneCountryCode.trim().length === 0) {
       throw new Error('Phone country code is required for phone authentication method');
     }
-    // Clear other *auth* method fields only; keep optional profile email (user.email) if set
     user.password = undefined;
     user.isEmailVerified = undefined;
     user.googleId = undefined;
     user.googleEmail = undefined;
     user.googleAvatar = undefined;
   } else if (user.authMethod === AuthMethod.GOOGLE) {
-    // Validate required fields for GOOGLE method
     if (!user.googleId || typeof user.googleId !== 'string' || user.googleId.trim().length === 0) {
       throw new Error('Google ID is required for Google authentication method');
     }
-    // Clear other *auth* method fields only; keep optional profile email and phone
     user.password = undefined;
     user.isEmailVerified = undefined;
     user.isPhoneVerified = undefined;
     user.otpCode = undefined;
     user.otpExpiresAt = undefined;
     user.otpAttempts = undefined;
+    const hasProfilePhoneGoogle =
+      typeof user.phone === 'string' &&
+      user.phone.trim().length > 0 &&
+      typeof user.phoneCountryCode === 'string' &&
+      user.phoneCountryCode.trim().length > 0;
+    if (!hasProfilePhoneGoogle) {
+      user.set('phone', undefined);
+      user.set('phoneCountryCode', undefined);
+    }
   }
 });
 
-// ============================================
-// Instance Methods
-// ============================================
 userSchema.methods.toJSON = function () {
   const user = this.toObject();
-  // Never send password or OTP in JSON responses
   delete user.password;
   delete user.otpCode;
   return user;

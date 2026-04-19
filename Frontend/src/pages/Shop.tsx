@@ -1,52 +1,107 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { SearchFilters } from '@/components/product/SearchFilters';
 import { ProductCard } from '@/components/product/ProductCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { productsAPI, categoriesAPI, apiProductToProduct, type CategoryPublic } from '@/lib/api';
+import { frontendProductsListKey } from '@/lib/queryClient';
+import {
+  getCommonProductTagsForFilters,
+  productMatchesTagFilters,
+} from '@/lib/productTagFilters';
 import type { Product } from '@/lib/types';
+
+const SHOP_VISIBLE_KEY = 'nextfit-shop-visible-';
+
+function readStoredVisible(slug: string): number {
+  try {
+    const v = sessionStorage.getItem(`${SHOP_VISIBLE_KEY}${slug}`);
+    if (v == null) return 8;
+    const n = parseInt(v, 10);
+    if (!Number.isFinite(n) || n < 8) return 8;
+    return n;
+  } catch {
+    return 8;
+  }
+}
 
 export default function Shop() {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlCategory = searchParams.get('category') ?? '';
   const urlFilter = searchParams.get('filter') ?? '';
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<CategoryPublic[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(urlCategory || 'all');
   const [sortBy, setSortBy] = useState(urlFilter || 'featured');
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 500]);
-  const [visibleCount, setVisibleCount] = useState(8);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const initialListSlug = (urlCategory || 'all') === 'all' ? 'all' : urlCategory;
+  const [visibleCount, setVisibleCount] = useState(() => readStoredVisible(initialListSlug));
+  const defaultPriceCapRef = useRef(500);
 
-  useEffect(() => {
-    const categorySlug = selectedCategory !== 'all' ? selectedCategory : undefined;
-    productsAPI
-      .getList(categorySlug ? { categorySlug } : {})
-      .then((res) => setProducts((res.data ?? []).map(apiProductToProduct)))
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load products'))
-      .finally(() => setLoading(false));
-  }, [selectedCategory]);
+  const listSlug = selectedCategory === 'all' ? 'all' : selectedCategory;
+  const productsQuery = useQuery({
+    queryKey: frontendProductsListKey(listSlug),
+    queryFn: () =>
+      productsAPI
+        .getList(listSlug === 'all' ? {} : { categorySlug: listSlug })
+        .then((res) => (res.data ?? []).map(apiProductToProduct)),
+  });
+  const products: Product[] = productsQuery.data ?? [];
+  const loading = productsQuery.isPending;
+  const error =
+    productsQuery.error instanceof Error
+      ? productsQuery.error.message
+      : productsQuery.error
+        ? String(productsQuery.error)
+        : null;
 
-  useEffect(() => {
-    categoriesAPI.getList().then((res) => setCategories(res.data ?? [])).catch(() => {});
-  }, []);
+  const categoriesQuery = useQuery({
+    queryKey: ['frontend', 'categories'],
+    queryFn: () => categoriesAPI.getList().then((res) => res.data ?? []),
+  });
+  const categories: CategoryPublic[] = categoriesQuery.data ?? [];
 
   useEffect(() => {
     if (urlCategory && urlCategory !== selectedCategory) setSelectedCategory(urlCategory);
   }, [urlCategory]);
+
+  useEffect(() => {
+    setVisibleCount(readStoredVisible(listSlug));
+  }, [listSlug]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(`${SHOP_VISIBLE_KEY}${listSlug}`, String(visibleCount));
+    } catch {
+    }
+  }, [visibleCount, listSlug]);
 
   const priceMax = useMemo(() => {
     if (products.length === 0) return 500;
     return Math.max(...products.map((p) => p.price), 500);
   }, [products]);
 
+  const tagFilterOptions = useMemo(() => getCommonProductTagsForFilters(products), [products]);
+
   useEffect(() => {
-    setPriceRange((prev) => [prev[0], Math.min(prev[1], priceMax)] as [number, number]);
+    const allowed = new Set(tagFilterOptions.map((o) => o.value));
+    setSelectedTags((prev) => prev.filter((t) => allowed.has(t)));
+  }, [tagFilterOptions]);
+
+  useEffect(() => {
+    setPriceRange((prev) => {
+      const lo = Math.min(prev[0], priceMax);
+      const stillDefaultCeiling = prev[1] === defaultPriceCapRef.current;
+      const hi = stillDefaultCeiling
+        ? priceMax
+        : Math.min(prev[1], priceMax);
+      defaultPriceCapRef.current = priceMax;
+      return [lo, Math.max(lo, hi)] as [number, number];
+    });
   }, [priceMax]);
 
   const filteredProducts = useMemo(() => {
@@ -64,6 +119,14 @@ export default function Shop() {
 
     if (selectedCategory !== 'all') {
       list = list.filter((p) => p.category === selectedCategory);
+    }
+
+    if (inStockOnly) {
+      list = list.filter((p) => p.inStock);
+    }
+
+    if (selectedTags.length > 0) {
+      list = list.filter((p) => productMatchesTagFilters(p.tags, selectedTags));
     }
 
     list = list.filter((p) => p.price >= priceRange[0] && p.price <= priceRange[1]);
@@ -86,7 +149,7 @@ export default function Shop() {
     }
 
     return list;
-  }, [products, searchQuery, selectedCategory, sortBy, priceRange]);
+  }, [products, searchQuery, selectedCategory, sortBy, priceRange, inStockOnly, selectedTags]);
 
   const visibleProducts = filteredProducts.slice(0, visibleCount);
   const hasMore = visibleCount < filteredProducts.length;
@@ -111,35 +174,38 @@ export default function Shop() {
   return (
     <div className="min-h-screen py-8">
       <div className="container mx-auto px-4">
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <h1 className="text-4xl font-serif font-bold mb-2">Shop All Products</h1>
+          <h1 className="text-4xl font-serif font-bold mb-2 text-foreground">Shop All Products</h1>
           <p className="text-muted-foreground">
             Discover our collection of premium fashion items
           </p>
         </motion.div>
 
-        {/* Search & Filters */}
         <SearchFilters
           onSearch={setSearchQuery}
           onCategoryChange={handleCategoryChange}
           onSortChange={setSortBy}
           onPriceChange={setPriceRange}
           selectedCategory={selectedCategory}
+          sortBy={sortBy}
+          priceRange={priceRange}
           categories={categories.map((c) => ({ value: c.slug, label: c.name }))}
           priceMax={priceMax}
+          tagOptions={tagFilterOptions}
+          selectedTags={selectedTags}
+          onSelectedTagsChange={setSelectedTags}
+          inStockOnly={inStockOnly}
+          onInStockOnlyChange={setInStockOnly}
         />
 
-        {/* Results Count */}
         <div className="my-6 text-sm text-muted-foreground">
           Showing {visibleProducts.length} of {filteredProducts.length} products
         </div>
 
-        {/* Loading / Error / Products Grid */}
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {[...Array(8)].map((_, i) => (
@@ -167,7 +233,6 @@ export default function Shop() {
               ))}
             </div>
 
-            {/* Load More */}
             {hasMore && (
               <div className="mt-12 text-center">
                 <button

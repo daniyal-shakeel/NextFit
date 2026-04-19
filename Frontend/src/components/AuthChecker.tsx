@@ -1,11 +1,8 @@
 import { useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { authAPI, customersAPI } from '@/lib/api';
+import { mapApiMeasurements } from '@/lib/mapApiMeasurements';
 
-/**
- * Component that checks authentication status on app load
- * and keeps user logged in if token is valid. Fetches full profile (phone, measurements) from /api/customers/me.
- */
 export const AuthChecker = () => {
   const { login, logout, fetchCart, fetchAddresses } = useStore();
 
@@ -28,13 +25,12 @@ export const AuthChecker = () => {
                 phoneCountryCode: d.phoneCountryCode,
                 phoneNumber: d.phoneNumber,
                 avatar: d.avatar,
-                measurements: d.measurements,
+                measurements: mapApiMeasurements(d.measurements),
               });
               await Promise.all([fetchCart(), fetchAddresses()]);
               return;
             }
           } catch {
-            // Fall back to auth user only
           }
           login({
             id: authUser.id,

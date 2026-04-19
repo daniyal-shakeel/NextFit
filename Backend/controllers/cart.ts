@@ -5,9 +5,7 @@ import Product from '../models/Product.js';
 import { HTTP_STATUS } from '../constants/errorCodes.js';
 import type { AuthPayload } from '../middleware/requirePermission.js';
 import { MAX_ITEMS, MAX_QUANTITY, MIN_QUANTITY } from '../models/Cart.js';
-
-const SHIPPING_FREE_THRESHOLD = 100;
-const SHIPPING_COST = 10;
+import { getShippingForSubtotal } from '../services/adminSettingsService.js';
 
 function getUserId(req: Request): string | null {
   const auth = req.auth as AuthPayload | undefined;
@@ -27,7 +25,6 @@ function trimOptionalString(value: unknown, maxLen: number): string | undefined 
   return s === '' ? undefined : s.slice(0, maxLen);
 }
 
-/** Normalize query/params value to a single string for Mongoose. */
 function paramString(value: string | string[] | undefined): string | undefined {
   if (value === undefined) return undefined;
   return typeof value === 'string' ? value : value[0];
@@ -81,7 +78,7 @@ async function buildCartPayload(doc: { items: PopulatedItem[] } | null): Promise
     };
   });
   const subtotal = items.reduce((sum, it) => sum + it.lineTotal, 0);
-  const shipping = subtotal >= SHIPPING_FREE_THRESHOLD ? 0 : SHIPPING_COST;
+  const { shipping } = await getShippingForSubtotal(subtotal);
   const total = subtotal + shipping;
   return { items, subtotal, shipping, total };
 }

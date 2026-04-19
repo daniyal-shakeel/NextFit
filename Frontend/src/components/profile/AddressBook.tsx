@@ -27,9 +27,8 @@ const emptyAddress: Omit<SavedAddress, 'id'> = {
   label: '',
   street: '',
   city: '',
-  state: '',
+  province: '',
   zipCode: '',
-  country: '',
   isDefault: false,
 };
 
@@ -146,34 +145,23 @@ export const AddressBook = ({ addresses, onAdd, onUpdate, onDelete, onSetDefault
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="state">State</Label>
+                  <Label htmlFor="province">Province</Label>
                   <Input
-                    id="state"
-                    value={formData.state}
-                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                    placeholder="NY"
+                    id="province"
+                    value={formData.province}
+                    onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                    placeholder="Punjab"
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="zipCode">ZIP Code</Label>
-                  <Input
-                    id="zipCode"
-                    value={formData.zipCode}
-                    onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
-                    placeholder="10001"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country</Label>
-                  <Input
-                    id="country"
-                    value={formData.country}
-                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                    placeholder="USA"
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="zipCode">ZIP Code</Label>
+                <Input
+                  id="zipCode"
+                  value={formData.zipCode}
+                  onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
+                  placeholder="54782"
+                />
               </div>
             </div>
             <DialogFooter>
@@ -222,9 +210,8 @@ export const AddressBook = ({ addresses, onAdd, onUpdate, onDelete, onSetDefault
                 </div>
                 <p className="text-sm text-muted-foreground">{address.street}</p>
                 <p className="text-sm text-muted-foreground">
-                  {address.city}, {address.state} {address.zipCode}
+                  {address.city}, {address.province} {address.zipCode}
                 </p>
-                <p className="text-sm text-muted-foreground">{address.country}</p>
                 {!address.isDefault && (
                   <Button
                     variant="link"

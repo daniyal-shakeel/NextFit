@@ -5,10 +5,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
     --background: 240 4% 95%;
@@ -152,6 +148,36 @@ All colors MUST be HSL.
 @layer base {
   * {
     @apply border-border;
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  html.dark {
+    scrollbar-color: hsl(240 4% 35%) hsl(240 5% 12%);
+  }
+
+  html.dark ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  html.dark ::-webkit-scrollbar-track {
+    background: hsl(240 5% 12%);
+  }
+
+  html.dark ::-webkit-scrollbar-thumb {
+    background: hsl(240 4% 35%);
+    border-radius: 9999px;
+  }
+
+  html.dark ::-webkit-scrollbar-thumb:hover {
+    background: hsl(240 4% 45%);
   }
 
   body {

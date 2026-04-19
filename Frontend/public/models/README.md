@@ -1,17 +1,11 @@
-# MediaPipe Models
+# MediaPipe models (live camera try-on)
 
-The live camera virtual try-on uses two MediaPipe models, loaded from CDN by default:
+The live camera virtual try-on runs entirely in the browser and does not call `/api/tryon`.
 
 ## Pose Landmarker
-```
-https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
-```
 
-## Image Segmenter (Selfie Multiclass)
-```
-https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite
-```
+`LiveTryOnCanvas` loads the pose model from a local file:
 
-Used for layered shirt compositing so arms/hands appear over the shirt.
+`/models/pose_landmarker_lite.task`
 
-To use local copies for offline use, download the models and update the respective hooks to use `/models/<filename>`.
+This file is checked into `public/models/`. It is used for **2D** body landmarks only (normalized coordinates mapped to the overlay canvas).

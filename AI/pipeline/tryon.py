@@ -7,8 +7,7 @@ from diffusers import AutoPipelineForInpainting, AutoencoderKL
 from pipeline.preprocessing.pose import extract_pose
 from pipeline.preprocessing.parsing import parse_human
 from pipeline.preprocessing.measurements import extract_measurements
-from pipeline.preprocessing.masking import generate_cloth_mask
-from pipeline.preprocessing.warping import warp_garment
+from pipeline.preprocessing.masking import generate_cloth_mask, generate_agnostic_image
 
 INFER_SIZE = 1024
 NUM_STEPS = 40
@@ -170,7 +169,7 @@ class TryOnPipeline:
         print("[TryOn] === Starting try-on ===")
         original = person_image.convert("RGB")
 
-        print("[TryOn] Step 1/8: Extracting pose for smart crop...")
+        print("[TryOn] Step 1/6: Extracting pose for smart crop...")
         pre_pose = extract_pose(original)
         person_sq, crop_box = _pose_aware_crop(original, pre_pose, INFER_SIZE)
         garment_sq = garment_image.convert("RGB").resize(
@@ -178,11 +177,11 @@ class TryOnPipeline:
         )
         print(f"[TryOn]   Smart crop box: {crop_box}")
 
-        print("[TryOn] Step 2/8: Extracting pose on cropped image...")
+        print("[TryOn] Step 2/6: Extracting pose on cropped image...")
         pose_data = extract_pose(person_sq)
         print(f"[TryOn]   Found {len(pose_data['landmarks'])} landmarks")
 
-        print("[TryOn] Step 3/8: Extracting body measurements...")
+        print("[TryOn] Step 3/6: Extracting body measurements...")
         measurements = extract_measurements(pose_data)
         print(
             f"[TryOn]   shoulder={measurements['shoulder_width']:.0f}px  "
@@ -191,51 +190,17 @@ class TryOnPipeline:
             f"R-arm={measurements['right_arm_length']:.0f}px"
         )
 
-        print("[TryOn] Step 4/8: Parsing human segmentation...")
+        print("[TryOn] Step 4/6: Parsing human segmentation...")
         parse_human(person_sq)
         print("[TryOn]   Human parsing complete")
 
-        print(f"[TryOn] Step 5/8: Generating cloth mask (category={category})...")
+        print(f"[TryOn] Step 5/6: Generating cloth mask (category={category})...")
         cloth_mask = generate_cloth_mask(person_sq, pose_data, measurements, category)
         print("[TryOn]   Cloth mask generated (with face protection)")
 
-        print("[TryOn] Step 6/8: Warping garment (rembg + zone split)...")
-        warped_rgba = warp_garment(
-            garment_sq, pose_data, measurements, (INFER_SIZE, INFER_SIZE),
-        )
-        warped_rgb = warped_rgba.convert("RGB")
-        warped_alpha = warped_rgba.split()[3]
-        print("[TryOn]   Garment warped and positioned")
+        print("[TryOn] Step 6/6: Generating agnostic image...")
+        agnostic = generate_agnostic_image(person_sq, cloth_mask)
+        print("[TryOn]   Agnostic image generated")
 
-        print("[TryOn] Step 7/8: Compositing garment + SDXL inpainting...")
-        mask_l = cloth_mask.convert("L")
-        composite = person_sq.copy()
-        composite.paste(warped_rgb, mask=warped_alpha)
-
-        preprocessed = composite.copy()
-
-        raw_result = self.pipe(
-            prompt="photorealistic person wearing shirt, natural fabric draping, realistic shadows, seamless fit, high resolution portrait",
-            negative_prompt="white border, black border, floating garment, misaligned clothing, artifacts, blurry, distorted face, extra limbs",
-            image=composite,
-            mask_image=mask_l,
-            ip_adapter_image=warped_rgb,
-            num_inference_steps=NUM_STEPS,
-            guidance_scale=GUIDANCE_SCALE,
-            strength=STRENGTH,
-            height=INFER_SIZE,
-            width=INFER_SIZE,
-        ).images[0]
-
-        print("[TryOn] Step 8/8: Compositing + post-processing...")
-        result_sq = _composite_with_mask(person_sq, raw_result, cloth_mask)
-        result_sq = _post_process(result_sq, cloth_mask)
-
-        crop_w = crop_box[2] - crop_box[0]
-        crop_h = crop_box[3] - crop_box[1]
-        result_cropped = result_sq.resize((crop_w, crop_h), Image.LANCZOS)
-        final = original.copy()
-        final.paste(result_cropped, (crop_box[0], crop_box[1]))
-
-        print("[TryOn] === Try-on complete ===")
-        return {"result": final, "preprocessed": preprocessed}
+        print("[TryOn] === Try-on complete (mask-only mode) ===")
+        return {"result": agnostic, "preprocessed": agnostic}

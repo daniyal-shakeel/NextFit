@@ -1,19 +1,41 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, CreditCard, Truck, CheckCircle, MapPin, Phone, Mail } from 'lucide-react';
+import { ArrowLeft, Truck, CheckCircle, MapPin, Phone, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useStore } from '@/store/useStore';
-import { ordersAPI, addressesAPI, type AddressResponse } from '@/lib/api';
+import {
+  ordersAPI,
+  addressesAPI,
+  storeAPI,
+  computeShippingFromStore,
+  type AddressResponse,
+  type ShippingAddressPayload,
+  type StoreShippingData,
+} from '@/lib/api';
 import { toast } from 'sonner';
 import { CURRENCY } from '@/lib/constants';
 
-const steps = ['Shipping', 'Payment', 'Review'];
+const steps = ['Shipping', 'Review'];
+
+const DEFAULT_STORE_SHIPPING: StoreShippingData = { shippingRate: 10, freeShippingMinSubtotal: 100 };
+
+function emptyShippingForm() {
+  return {
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    address: '',
+    city: '',
+    province: '',
+    zip: '',
+  };
+}
 
 export default function Checkout() {
   const navigate = useNavigate();
@@ -24,18 +46,17 @@ export default function Checkout() {
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [saveAddress, setSaveAddress] = useState(false);
   const [setAsDefault, setSetAsDefault] = useState(false);
-  const [shippingInfo, setShippingInfo] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    address: '',
-    city: '',
-    state: '',
-    zip: '',
-    country: 'Pakistan',
-  });
-  const [paymentMethod, setPaymentMethod] = useState('cod');
+  const [shippingInfo, setShippingInfo] = useState(emptyShippingForm);
+  const [storeShipping, setStoreShipping] = useState<StoreShippingData>(DEFAULT_STORE_SHIPPING);
+
+  useEffect(() => {
+    storeAPI
+      .getShipping()
+      .then((res) => {
+        if (res.data) setStoreShipping(res.data);
+      })
+      .catch(() => setStoreShipping(DEFAULT_STORE_SHIPPING));
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -51,9 +72,8 @@ export default function Checkout() {
             ...prev,
             address: defaultAddr.street,
             city: defaultAddr.city,
-            state: defaultAddr.state,
+            province: defaultAddr.province,
             zip: defaultAddr.zipCode,
-            country: defaultAddr.country || 'Pakistan',
           }));
         }
         setShippingInfo((p) => {
@@ -82,26 +102,15 @@ export default function Checkout() {
   }, [isAuthenticated, user?.name, user?.email, user?.phone]);
 
   const subtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const shipping = subtotal > 100 ? 0 : 10;
-  const tax = subtotal * 0.1;
-  const total = subtotal + shipping + tax;
+  const shipping = computeShippingFromStore(subtotal, storeShipping);
+  const total = subtotal + shipping;
 
   const handleShippingSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setCurrentStep(1);
   };
 
-  const handlePaymentSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setCurrentStep(2);
-  };
-
   const handlePlaceOrder = async () => {
-    if (!isAuthenticated) {
-      toast.error('Sign in to place an order');
-      navigate('/auth');
-      return;
-    }
     const lineItems = cart.map((item) => ({
       productId: item.product.id,
       quantity: item.quantity,
@@ -116,26 +125,27 @@ export default function Checkout() {
       if (selectedAddressId) {
         body.addressId = selectedAddressId;
       } else {
-        body.shippingAddress = {
+        const ship: ShippingAddressPayload = {
           firstName: shippingInfo.firstName,
           lastName: shippingInfo.lastName,
-          email: shippingInfo.email,
           phone: shippingInfo.phone,
           street: shippingInfo.address,
           city: shippingInfo.city,
-          state: shippingInfo.state,
+          province: shippingInfo.province,
           zipCode: shippingInfo.zip,
-          country: shippingInfo.country,
         };
+        const emailTrim = shippingInfo.email.trim();
+        if (emailTrim) ship.email = emailTrim;
+        body.shippingAddress = ship;
         if (saveAddress) body.saveAddress = true;
         if (setAsDefault) body.setAsDefault = true;
       }
       const res = await ordersAPI.create(body);
-      const orderId = res.data?._id;
-      if (orderId) {
+      const orderRef = res.data?.orderNumber ?? res.data?._id;
+      if (orderRef) {
         await clearCart();
         toast.success('Order placed successfully! Check WhatsApp for confirmation.');
-        navigate(`/order/${orderId}`);
+        navigate(`/order/${orderRef}`);
       } else {
         toast.error('Order created but could not redirect');
       }
@@ -151,7 +161,7 @@ export default function Checkout() {
       <div className="min-h-screen py-12 md:py-20">
         <div className="container mx-auto px-4 text-center">
           <CheckCircle className="h-16 w-16 md:h-20 md:w-20 mx-auto text-primary mb-4 md:mb-6" />
-          <h1 className="text-2xl md:text-3xl font-serif font-bold mb-3 md:mb-4">No Items to Checkout</h1>
+          <h1 className="text-2xl md:text-3xl font-serif font-bold mb-3 md:mb-4 text-foreground">No Items to Checkout</h1>
           <p className="text-muted-foreground mb-6 md:mb-8">Add some items to your cart first.</p>
           <Link to="/shop"><Button size="lg">Continue Shopping</Button></Link>
         </div>
@@ -166,9 +176,8 @@ export default function Checkout() {
           <ArrowLeft className="h-4 w-4" /> Back to Cart
         </Link>
 
-        <h1 className="text-2xl md:text-4xl font-serif font-bold mb-6 md:mb-8">Checkout</h1>
+        <h1 className="text-2xl md:text-4xl font-serif font-bold mb-6 md:mb-8 text-foreground">Checkout</h1>
 
-        {/* Steps Indicator */}
         <div className="flex items-center justify-center mb-8 md:mb-12 overflow-x-auto pb-2">
           {steps.map((step, index) => (
             <div key={step} className="flex items-center flex-shrink-0">
@@ -189,7 +198,6 @@ export default function Checkout() {
 
         <div className="grid lg:grid-cols-3 gap-6 md:gap-8">
           <div className="lg:col-span-2">
-            {/* Step 1: Shipping */}
             {currentStep === 0 && (
               <motion.form
                 initial={{ opacity: 0, x: -20 }}
@@ -218,11 +226,12 @@ export default function Checkout() {
                               ...prev,
                               address: addr.street,
                               city: addr.city,
-                              state: addr.state,
+                              province: addr.province,
                               zip: addr.zipCode,
-                              country: addr.country || 'Pakistan',
                             }));
                           }
+                        } else {
+                          setShippingInfo(emptyShippingForm());
                         }
                       }}
                     >
@@ -268,7 +277,6 @@ export default function Checkout() {
                         className="pl-10"
                         value={shippingInfo.email}
                         onChange={(e) => setShippingInfo({ ...shippingInfo, email: e.target.value })}
-                        required
                       />
                     </div>
                   </div>
@@ -301,7 +309,7 @@ export default function Checkout() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="city">City</Label>
                     <Input
@@ -312,11 +320,11 @@ export default function Checkout() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="state">State</Label>
+                    <Label htmlFor="province">Province</Label>
                     <Input
-                      id="state"
-                      value={shippingInfo.state}
-                      onChange={(e) => { setSelectedAddressId(null); setShippingInfo({ ...shippingInfo, state: e.target.value }); }}
+                      id="province"
+                      value={shippingInfo.province}
+                      onChange={(e) => { setSelectedAddressId(null); setShippingInfo({ ...shippingInfo, province: e.target.value }); }}
                       required
                     />
                   </div>
@@ -326,15 +334,6 @@ export default function Checkout() {
                       id="zip"
                       value={shippingInfo.zip}
                       onChange={(e) => { setSelectedAddressId(null); setShippingInfo({ ...shippingInfo, zip: e.target.value }); }}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="country">Country</Label>
-                    <Input
-                      id="country"
-                      value={shippingInfo.country}
-                      onChange={(e) => { setSelectedAddressId(null); setShippingInfo({ ...shippingInfo, country: e.target.value }); }}
                       required
                     />
                   </div>
@@ -354,82 +353,12 @@ export default function Checkout() {
                 )}
 
                 <Button type="submit" className="w-full" size="lg">
-                  Continue to Payment
+                  Continue to review
                 </Button>
               </motion.form>
             )}
 
-            {/* Step 2: Payment */}
             {currentStep === 1 && (
-              <motion.form
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                onSubmit={handlePaymentSubmit}
-                className="bg-card rounded-xl border border-border p-4 md:p-6 space-y-4 md:space-y-6"
-              >
-                <div className="flex items-center gap-3 mb-2 md:mb-4">
-                  <CreditCard className="h-5 w-5 text-primary" />
-                  <h2 className="text-lg md:text-xl font-semibold">Payment Method</h2>
-                </div>
-
-                <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="space-y-3">
-                  <div className="flex items-center space-x-3 p-3 md:p-4 border border-border rounded-lg cursor-pointer hover:bg-muted/50">
-                    <RadioGroupItem value="cod" id="cod" />
-                    <Label htmlFor="cod" className="flex-1 cursor-pointer">
-                      <div className="font-medium text-sm md:text-base">Cash on Delivery</div>
-                      <div className="text-xs md:text-sm text-muted-foreground">Pay when you receive your order</div>
-                    </Label>
-                    <Truck className="h-5 w-5 md:h-6 md:w-6 text-muted-foreground" />
-                  </div>
-                  <div className="flex items-center space-x-3 p-3 md:p-4 border border-border rounded-lg cursor-pointer hover:bg-muted/50">
-                    <RadioGroupItem value="card" id="card" />
-                    <Label htmlFor="card" className="flex-1 cursor-pointer">
-                      <div className="font-medium text-sm md:text-base">Credit/Debit Card</div>
-                      <div className="text-xs md:text-sm text-muted-foreground">Secure payment via card</div>
-                    </Label>
-                    <CreditCard className="h-5 w-5 md:h-6 md:w-6 text-muted-foreground" />
-                  </div>
-                  <div className="flex items-center space-x-3 p-3 md:p-4 border border-border rounded-lg cursor-pointer hover:bg-muted/50">
-                    <RadioGroupItem value="bank" id="bank" />
-                    <Label htmlFor="bank" className="flex-1 cursor-pointer">
-                      <div className="font-medium text-sm md:text-base">Bank Transfer</div>
-                      <div className="text-xs md:text-sm text-muted-foreground">Direct bank transfer</div>
-                    </Label>
-                  </div>
-                </RadioGroup>
-
-                {paymentMethod === 'card' && (
-                  <div className="space-y-4 pt-4 border-t border-border">
-                    <div className="space-y-2">
-                      <Label htmlFor="cardNumber">Card Number</Label>
-                      <Input id="cardNumber" placeholder="1234 5678 9012 3456" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="expiry">Expiry Date</Label>
-                        <Input id="expiry" placeholder="MM/YY" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="cvv">CVV</Label>
-                        <Input id="cvv" placeholder="123" />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
-                  <Button type="button" variant="outline" onClick={() => setCurrentStep(0)} className="flex-1">
-                    Back
-                  </Button>
-                  <Button type="submit" className="flex-1">
-                    Review Order
-                  </Button>
-                </div>
-              </motion.form>
-            )}
-
-            {/* Step 3: Review */}
-            {currentStep === 2 && (
               <motion.div
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -437,27 +366,29 @@ export default function Checkout() {
               >
                 <h2 className="text-lg md:text-xl font-semibold">Review Your Order</h2>
 
-                {/* Shipping Details */}
                 <div className="space-y-2">
                   <h3 className="font-medium text-muted-foreground text-sm md:text-base">Shipping To</h3>
                   <p className="text-sm md:text-base">{shippingInfo.firstName} {shippingInfo.lastName}</p>
                   <p className="text-sm md:text-base">{shippingInfo.address}</p>
-                  <p className="text-sm md:text-base">{shippingInfo.city}, {shippingInfo.state} {shippingInfo.zip}</p>
-                  <p className="text-sm md:text-base">{shippingInfo.country}</p>
+                  <p className="text-sm md:text-base">{shippingInfo.city}, {shippingInfo.province} {shippingInfo.zip}</p>
+                  {shippingInfo.email.trim() ? (
+                    <p className="text-sm md:text-base">{shippingInfo.email}</p>
+                  ) : null}
                   <p className="text-sm md:text-base">{shippingInfo.phone}</p>
                 </div>
 
                 <Separator />
 
-                {/* Payment Method */}
                 <div className="space-y-2">
-                  <h3 className="font-medium text-muted-foreground text-sm md:text-base">Payment Method</h3>
-                  <p className="capitalize text-sm md:text-base">{paymentMethod === 'cod' ? 'Cash on Delivery' : paymentMethod === 'card' ? 'Credit/Debit Card' : 'Bank Transfer'}</p>
+                  <h3 className="font-medium text-muted-foreground text-sm md:text-base">Payment</h3>
+                  <div className="flex items-center gap-2 text-sm md:text-base">
+                    <Truck className="h-5 w-5 text-muted-foreground shrink-0" />
+                    <span>Cash on Delivery</span>
+                  </div>
                 </div>
 
                 <Separator />
 
-                {/* Order Items */}
                 <div className="space-y-3 md:space-y-4">
                   <h3 className="font-medium text-muted-foreground text-sm md:text-base">Order Items</h3>
                   {cart.map((item) => (
@@ -473,7 +404,7 @@ export default function Checkout() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
-                  <Button variant="outline" onClick={() => setCurrentStep(1)} className="flex-1">
+                  <Button variant="outline" onClick={() => setCurrentStep(0)} className="flex-1">
                     Back
                   </Button>
                   <Button onClick={handlePlaceOrder} className="flex-1" disabled={placing}>
@@ -484,10 +415,9 @@ export default function Checkout() {
             )}
           </div>
 
-          {/* Order Summary Sidebar */}
           <div className="bg-card rounded-xl border border-border p-4 md:p-6 h-fit lg:sticky lg:top-24 order-first lg:order-last">
             <h2 className="text-lg md:text-xl font-semibold mb-4 md:mb-6">Order Summary</h2>
-            
+
             <div className="space-y-2 md:space-y-3 mb-4 md:mb-6 max-h-40 overflow-y-auto">
               {cart.map((item) => (
                 <div key={`${item.product.id}-${item.size}`} className="flex justify-between text-xs md:text-sm">
@@ -507,10 +437,6 @@ export default function Checkout() {
               <div className="flex justify-between text-sm md:text-base">
                 <span className="text-muted-foreground">Shipping</span>
                 <span>{shipping === 0 ? 'Free' : `${CURRENCY} ${shipping.toFixed(2)}`}</span>
-              </div>
-              <div className="flex justify-between text-sm md:text-base">
-                <span className="text-muted-foreground">Tax (10%)</span>
-                <span>{CURRENCY} {tax.toFixed(2)}</span>
               </div>
               <Separator />
               <div className="flex justify-between font-bold text-base md:text-lg">

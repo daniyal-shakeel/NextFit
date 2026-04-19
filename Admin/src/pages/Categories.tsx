@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft,
   Plus,
   Pencil,
   Eye,
@@ -9,8 +8,13 @@ import {
   RefreshCw,
   type LucideIcon,
 } from "lucide-react";
-import { adminAPI, aiAPI, type AdminUser } from "@/lib/api";
+import { adminAPI, type AdminUser } from "@/lib/api";
 import { categoriesAPI, type CategoryItem } from "@/lib/api";
+import { formatIsoDate } from "@/lib/formatIsoDate";
+import { useDraggableModal } from "@/hooks/useDraggableModal";
+import { AdminLayout } from "@/components/layout/AdminLayout";
+import { CategoryEditorForm } from "@/components/CategoryEditorForm";
+import { ScrollTopBottomButtons } from "@/components/ScrollTopBottomButtons";
 
 type ActionTile = {
   id: string;
@@ -21,57 +25,25 @@ type ActionTile = {
   action: () => void;
 };
 
+function getCategoryId(c: CategoryItem): string {
+  return c.id ?? (c as { _id?: string })._id ?? "";
+}
+
 export default function Categories() {
   const navigate = useNavigate();
+  const { dialogStyle, handleProps, reset: resetDrag } = useDraggableModal();
   const [user, setUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [loadingList, setLoadingList] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState<CategoryItem | null>(null);
-  const [modal, setModal] = useState<"add" | "edit" | "view" | "delete" | null>(null);
+  const [modal, setModal] = useState<"add" | "delete" | null>(null);
+  const [addFormKey, setAddFormKey] = useState(0);
+  const [categoryDetailVisible, setCategoryDetailVisible] = useState(false);
+  const categoryDetailRef = useRef<HTMLElement | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [formName, setFormName] = useState("");
-  const [formImageUrl, setFormImageUrl] = useState("");
-  const [formDescription, setFormDescription] = useState("");
   const [submitLoading, setSubmitLoading] = useState(false);
-  const [suggestLoading, setSuggestLoading] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStartRef = useRef<{ startX: number; startY: number; startOffsetX: number; startOffsetY: number } | null>(null);
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const onMove = (e: MouseEvent) => {
-      const start = dragStartRef.current;
-      if (!start) return;
-      setDragOffset({
-        x: start.startOffsetX + (e.clientX - start.startX),
-        y: start.startOffsetY + (e.clientY - start.startY),
-      });
-    };
-    const onTouchMove = (e: TouchEvent) => {
-      const start = dragStartRef.current;
-      if (!start || !e.touches[0]) return;
-      setDragOffset({
-        x: start.startOffsetX + (e.touches[0].clientX - start.startX),
-        y: start.startOffsetY + (e.touches[0].clientY - start.startY),
-      });
-    };
-    const onUp = () => {
-      dragStartRef.current = null;
-      setIsDragging(false);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    window.addEventListener("touchmove", onTouchMove, { passive: true });
-    window.addEventListener("touchend", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      window.removeEventListener("touchmove", onTouchMove);
-      window.removeEventListener("touchend", onUp);
-    };
-  }, [isDragging]);
 
   useEffect(() => {
     adminAPI
@@ -87,7 +59,7 @@ export default function Categories() {
       .finally(() => setLoading(false));
   }, [navigate]);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     setLoadingList(true);
     setError(null);
     try {
@@ -99,77 +71,30 @@ export default function Categories() {
     } finally {
       setLoadingList(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (user) fetchCategories();
-  }, [user]);
+    if (user) void fetchCategories();
+  }, [user, fetchCategories]);
 
   const openAdd = () => {
-    setFormName("");
-    setFormImageUrl("");
-    setFormDescription("");
-    setDragOffset({ x: 0, y: 0 });
+    setAddFormKey((k) => k + 1);
+    resetDrag();
     setModal("add");
-  };
-
-  const openEdit = () => {
-    if (!selected) return;
-    setFormName(selected.name);
-    setFormImageUrl(selected.imageUrl);
-    setFormDescription(selected.description ?? "");
-    setDragOffset({ x: 0, y: 0 });
-    setModal("edit");
   };
 
   const openView = () => {
     if (!selected) return;
-    setModal("view");
+    setCategoryDetailVisible(true);
+    requestAnimationFrame(() => {
+      categoryDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
   const openDelete = () => {
     if (!selected) return;
+    resetDrag();
     setModal("delete");
-  };
-
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitLoading(true);
-    setError(null);
-    try {
-      await categoriesAPI.create({
-        name: formName.trim(),
-        imageUrl: formImageUrl.trim(),
-        description: formDescription.trim() || undefined,
-      });
-      setModal(null);
-      fetchCategories();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create category");
-    } finally {
-      setSubmitLoading(false);
-    }
-  };
-
-  const handleEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selected) return;
-    setSubmitLoading(true);
-    setError(null);
-    try {
-      await categoriesAPI.update(selected.id, {
-        name: formName.trim(),
-        imageUrl: formImageUrl.trim(),
-        description: formDescription.trim() || undefined,
-      });
-      setModal(null);
-      setSelected(null);
-      fetchCategories();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update category");
-    } finally {
-      setSubmitLoading(false);
-    }
   };
 
   const handleDelete = async () => {
@@ -179,8 +104,9 @@ export default function Categories() {
     try {
       await categoriesAPI.delete(selected.id);
       setModal(null);
+      setCategoryDetailVisible(false);
       setSelected(null);
-      fetchCategories();
+      await fetchCategories();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete category");
     } finally {
@@ -188,39 +114,25 @@ export default function Categories() {
     }
   };
 
-  const handleSuggestDescription = async () => {
-    const name = formName.trim() || "this category";
-    setSuggestLoading(true);
-    setError(null);
-    try {
-      const res = await aiAPI.suggestDescription({
-        context: "Category",
-        name,
-      });
-      if (res.data?.suggestion) setFormDescription(res.data.suggestion);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to get suggestion");
-    } finally {
-      setSuggestLoading(false);
-    }
-  };
+  const selectedId = selected ? getCategoryId(selected) : undefined;
 
-  const selectedId = selected?.id;
   const actionTiles: ActionTile[] = [
-    { id: "add", name: "Add", icon: Plus, color: "text-emerald-600 bg-emerald-100", action: openAdd },
+    { id: "add", name: "Add", icon: Plus, color: "text-emerald-600 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-950/55", action: openAdd },
     {
       id: "edit",
       name: "Edit",
       icon: Pencil,
-      color: "text-amber-600 bg-amber-100",
+      color: "text-amber-600 bg-amber-100 dark:text-amber-300 dark:bg-amber-950/55",
       disabled: !selectedId,
-      action: openEdit,
+      action: () => {
+        if (selectedId) navigate(`/categories/edit/${selectedId}`);
+      },
     },
     {
       id: "view",
       name: "View",
       icon: Eye,
-      color: "text-sky-600 bg-sky-100",
+      color: "text-sky-600 bg-sky-100 dark:text-sky-300 dark:bg-sky-950/55",
       disabled: !selectedId,
       action: openView,
     },
@@ -228,12 +140,26 @@ export default function Categories() {
       id: "delete",
       name: "Delete",
       icon: Trash2,
-      color: "text-rose-600 bg-rose-100",
+      color: "text-rose-600 bg-rose-100 dark:text-rose-300 dark:bg-rose-950/55",
       disabled: !selectedId,
       action: openDelete,
     },
-    { id: "refresh", name: "Refresh", icon: RefreshCw, color: "text-slate-600 bg-slate-100", action: fetchCategories },
+    { id: "refresh", name: "Refresh", icon: RefreshCw, color: "text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-800/70", action: () => void fetchCategories() },
   ];
+
+  const filteredCategories = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return categories;
+    return categories.filter((c) => {
+      if (c.name.toLowerCase().includes(q)) return true;
+      if (c.slug.toLowerCase().includes(q)) return true;
+      if ((c.description ?? "").toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [categories, searchQuery]);
+
+  const showSearchNoMatches =
+    searchQuery.trim().length > 0 && filteredCategories.length === 0 && categories.length > 0;
 
   if (loading) {
     return (
@@ -244,57 +170,40 @@ export default function Categories() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card shadow-sm">
-        <div className="container mx-auto px-4 h-14 flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className="inline-flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Dashboard
-          </button>
-          <h1 className="text-xl font-serif font-bold">Category</h1>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await adminAPI.logout();
-                } finally {
-                  navigate("/login", { replace: true });
-                }
-              }}
-              className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            >
-              Log out
-            </button>
+    <AdminLayout title="Categories" userEmail={user?.email}>
+      <div className="mx-auto max-w-6xl">
+        <div className="sticky top-14 z-20 -mx-4 mb-2 border-b border-border bg-background/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
+            <div className="flex shrink-0 flex-wrap items-center gap-1 sm:flex-nowrap">
+              {actionTiles.map(({ id, name, icon: Icon, color, disabled, action }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={action}
+                  disabled={disabled}
+                  title={name}
+                  aria-label={name}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${color}`}
+                >
+                  <Icon className="h-4 w-4" aria-hidden />
+                </button>
+              ))}
+            </div>
+            <div className="min-w-0 flex-1 basis-[min(100%,12rem)] sm:basis-64">
+              <label htmlFor="category-search" className="sr-only">
+                Search categories
+              </label>
+              <input
+                id="category-search"
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter by name, slug, or description…"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                autoComplete="off"
+              />
+            </div>
           </div>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-6">
-        {/* Odoo-style action buttons */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
-          {actionTiles.map(({ id, name, icon: Icon, color, disabled, action }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={action}
-              disabled={disabled}
-              className="flex flex-col items-center gap-2 p-3 rounded-xl bg-card border border-border shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none"
-            >
-              <span
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg ${color}`}
-                aria-hidden
-              >
-                <Icon className="h-6 w-6" />
-              </span>
-              <span className="text-sm font-medium text-foreground">{name}</span>
-            </button>
-          ))}
         </div>
 
         {error && (
@@ -303,200 +212,221 @@ export default function Categories() {
           </div>
         )}
 
-        {/* List */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
+        {showSearchNoMatches && (
+          <div className="mb-4 rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            No categories match your filter. Try a different search term.
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground mb-2">Click a row to select it, then use View, Edit, or Delete.</p>
+
+        <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
           {loadingList ? (
             <div className="p-8 text-center text-muted-foreground">Loading categories...</div>
           ) : categories.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">No categories yet. Use Add to create one.</div>
           ) : (
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border bg-muted/50">
-                <tr>
-                  <th className="p-3 font-medium">Name</th>
-                  <th className="p-3 font-medium">Slug</th>
-                  <th className="p-3 font-medium">Products</th>
-                  <th className="p-3 font-medium">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {categories.map((cat) => (
-                  <tr
-                    key={cat.id}
-                    onClick={() => setSelected(cat)}
-                    className={`border-b border-border last:border-0 cursor-pointer transition-colors ${
-                      selectedId === cat.id ? "bg-primary/10" : "hover:bg-muted/30"
-                    }`}
-                  >
-                    <td className="p-3 font-medium">{cat.name}</td>
-                    <td className="p-3 text-muted-foreground">{cat.slug}</td>
-                    <td className="p-3">{cat.productCount}</td>
-                    <td className="p-3 text-muted-foreground">
-                      {cat.createdAt ? new Date(cat.createdAt).toLocaleDateString() : "—"}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border bg-muted/50">
+                  <tr>
+                    <th className="p-3 font-medium">Name</th>
+                    <th className="p-3 font-medium">Slug</th>
+                    <th className="p-3 font-medium">Products</th>
+                    <th className="p-3 font-medium">Created</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredCategories.map((cat) => {
+                    const id = getCategoryId(cat);
+                    const isSelected = selectedId === id;
+                    return (
+                      <tr
+                        key={id}
+                        onClick={() => setSelected(cat)}
+                        className={`border-b border-border last:border-0 cursor-pointer transition-colors select-none ${
+                          isSelected ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-muted/30"
+                        }`}
+                      >
+                        <td className="p-3 font-medium">{cat.name}</td>
+                        <td className="p-3 text-muted-foreground">{cat.slug}</td>
+                        <td className="p-3">{cat.productCount}</td>
+                        <td className="p-3 text-muted-foreground">
+                          {cat.createdAt ? new Date(cat.createdAt).toLocaleDateString() : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
-      </main>
 
-      {/* Add / Edit modal - closes only on Cancel button, draggable by title bar */}
-      {(modal === "add" || modal === "edit") && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div
-            className="w-full max-w-md rounded-xl bg-card border border-border shadow-xl overflow-hidden"
-            style={{ transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)` }}
+        {categoryDetailVisible && selected ? (
+          <section
+            ref={categoryDetailRef}
+            className="mt-8 scroll-mt-20 rounded-2xl border border-border bg-card shadow-sm"
+            aria-labelledby="category-detail-heading"
           >
-            <div
-              role="button"
-              tabIndex={0}
-              onMouseDown={(e) => {
-                if (e.button !== 0) return;
-                dragStartRef.current = {
-                  startX: e.clientX,
-                  startY: e.clientY,
-                  startOffsetX: dragOffset.x,
-                  startOffsetY: dragOffset.y,
-                };
-                setIsDragging(true);
-              }}
-              onTouchStart={(e) => {
-                const t = e.touches[0];
-                if (!t) return;
-                dragStartRef.current = {
-                  startX: t.clientX,
-                  startY: t.clientY,
-                  startOffsetX: dragOffset.x,
-                  startOffsetY: dragOffset.y,
-                };
-                setIsDragging(true);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") e.preventDefault();
-              }}
-              className="cursor-grab active:cursor-grabbing px-6 py-4 border-b border-border bg-muted/30 select-none touch-none"
-              aria-label="Drag to move dialog"
-            >
-              <h2 className="text-lg font-semibold">{modal === "add" ? "Add category" : "Edit category"}</h2>
-            </div>
-            <form onSubmit={modal === "add" ? handleAdd : handleEdit} className="space-y-4 p-6">
-              <div>
-                <label className="block text-sm font-medium mb-1">Name</label>
-                <input
-                  type="text"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  required
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Image URL</label>
-                <input
-                  type="url"
-                  value={formImageUrl}
-                  onChange={(e) => setFormImageUrl(e.target.value)}
-                  required
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <label className="block text-sm font-medium">Description (optional)</label>
-                  <button
-                    type="button"
-                    onClick={handleSuggestDescription}
-                    disabled={suggestLoading}
-                    className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
-                  >
-                    {suggestLoading ? "Suggesting…" : "Suggest with AI"}
-                  </button>
-                </div>
-                <textarea
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  rows={2}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-              <div className="flex gap-2 justify-end pt-2">
-                <button
-                  type="button"
-                  onClick={() => setModal(null)}
-                  className="rounded-md px-4 py-2 text-sm font-medium border border-input hover:bg-accent"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitLoading}
-                  className="rounded-md px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {submitLoading ? "Saving..." : modal === "add" ? "Create" : "Update"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* View modal */}
-      {modal === "view" && selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setModal(null)}>
-          <div
-            className="w-full max-w-md rounded-xl bg-card border border-border shadow-xl p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-semibold mb-4">View category</h2>
-            <dl className="space-y-2 text-sm">
-              <div>
-                <dt className="text-muted-foreground">Name</dt>
-                <dd className="font-medium">{selected.name}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Slug</dt>
-                <dd>{selected.slug}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Image URL</dt>
-                <dd className="break-all">{selected.imageUrl}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Description</dt>
-                <dd>{selected.description || "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Product count</dt>
-                <dd>{selected.productCount}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Created</dt>
-                <dd>{selected.createdAt ? new Date(selected.createdAt).toLocaleString() : "—"}</dd>
-              </div>
-            </dl>
-            <div className="mt-4 flex justify-end">
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-6">
+              <h2 id="category-detail-heading" className="text-lg font-semibold tracking-tight text-foreground">
+                Category details
+              </h2>
               <button
                 type="button"
-                onClick={() => setModal(null)}
-                className="rounded-md px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={() => setCategoryDetailVisible(false)}
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent"
               >
-                Close
+                Hide details
               </button>
+            </header>
+
+            <article className="p-5 sm:p-6">
+              <div className="grid gap-8 lg:grid-cols-12 lg:gap-8 lg:items-start">
+                <div className="space-y-5 lg:col-span-7">
+                  <header className="space-y-3">
+                    <h3 className="text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-3xl">
+                      {selected.name}
+                    </h3>
+                    <div
+                      className="flex flex-wrap gap-x-4 gap-y-1 border-l-2 border-muted pl-3 text-xs text-muted-foreground"
+                      aria-label="Category identifiers and timestamps"
+                    >
+                      <span className="break-all font-mono">
+                        <span className="text-muted-foreground/80">ID </span>
+                        {getCategoryId(selected) || "—"}
+                      </span>
+                      <span className="break-all font-mono">
+                        <span className="text-muted-foreground/80">Slug </span>
+                        {selected.slug}
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground/80">Created </span>
+                        <time dateTime={selected.createdAt}>{formatIsoDate(selected.createdAt)}</time>
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground/80">Updated </span>
+                        <time dateTime={selected.updatedAt}>{formatIsoDate(selected.updatedAt)}</time>
+                      </span>
+                    </div>
+                  </header>
+
+                  <section
+                    className="rounded-xl border border-border bg-muted/10 p-4 sm:p-5"
+                    aria-labelledby="category-stats-label"
+                  >
+                    <h4 id="category-stats-label" className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Catalog
+                    </h4>
+                    <dl className="grid gap-4 sm:grid-cols-1">
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Products in category</dt>
+                        <dd className="mt-1 text-lg font-semibold tabular-nums text-foreground">{selected.productCount}</dd>
+                      </div>
+                    </dl>
+                  </section>
+
+                  <section aria-labelledby="category-description-label">
+                    <h4 id="category-description-label" className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Description
+                    </h4>
+                    <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-background/80 px-4 py-3 text-sm leading-relaxed text-foreground shadow-inner">
+                      <p className="whitespace-pre-wrap">{selected.description?.trim() ? selected.description : "—"}</p>
+                    </div>
+                  </section>
+
+                  <section
+                    className="rounded-xl border border-border bg-muted/10 p-4 sm:p-5"
+                    aria-labelledby="category-image-url-label"
+                  >
+                    <h4 id="category-image-url-label" className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Image URL
+                    </h4>
+                    {selected.imageUrl ? (
+                      <a
+                        href={selected.imageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="break-all font-mono text-xs text-primary underline-offset-2 hover:underline"
+                      >
+                        {selected.imageUrl}
+                      </a>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">—</p>
+                    )}
+                  </section>
+                </div>
+
+                <div className="space-y-5 lg:col-span-5 lg:sticky lg:top-24">
+                  <section aria-labelledby="category-image-label">
+                    <h4 id="category-image-label" className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Image
+                    </h4>
+                    <figure className="overflow-hidden rounded-xl border border-border bg-muted/20 shadow-sm">
+                      {selected.imageUrl ? (
+                        <img src={selected.imageUrl} alt="" className="aspect-square w-full object-cover bg-background" />
+                      ) : (
+                        <figcaption className="flex aspect-square items-center justify-center p-6 text-sm text-muted-foreground">
+                          No image URL
+                        </figcaption>
+                      )}
+                    </figure>
+                  </section>
+                </div>
+              </div>
+            </article>
+          </section>
+        ) : null}
+      </div>
+
+      <ScrollTopBottomButtons />
+
+      {modal === "add" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 dark:bg-black/60">
+          <div
+            className="w-full max-w-md rounded-xl bg-card border border-border shadow-xl overflow-hidden"
+            style={dialogStyle}
+          >
+            <div
+              {...handleProps}
+              className="cursor-grab active:cursor-grabbing px-6 py-4 border-b border-border bg-muted/30 select-none touch-none"
+            >
+              <h2 className="text-lg font-semibold">Add category</h2>
+            </div>
+            <div className="p-6 pt-4">
+              <CategoryEditorForm
+                key={addFormKey}
+                initialValues={{ name: "", imageUrl: "", description: "" }}
+                submitLabel="Create"
+                listenPaste
+                onCancel={() => setModal(null)}
+                onSubmit={async (body) => {
+                  setError(null);
+                  try {
+                    await categoriesAPI.create(body);
+                    setModal(null);
+                    await fetchCategories();
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "Failed to create category");
+                  }
+                }}
+              />
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete confirm */}
       {modal === "delete" && selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setModal(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 dark:bg-black/60" onClick={() => setModal(null)}>
           <div
             className="w-full max-w-sm rounded-xl bg-card border border-border shadow-xl p-6"
+            style={dialogStyle}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-lg font-semibold mb-2">Delete category</h2>
+            <h2 {...handleProps} className="text-lg font-semibold mb-2 cursor-grab active:cursor-grabbing select-none touch-none">
+              Delete category
+            </h2>
             <p className="text-sm text-muted-foreground mb-4">
               Delete &quot;{selected.name}&quot;? This cannot be undone.
             </p>
@@ -510,7 +440,7 @@ export default function Categories() {
               </button>
               <button
                 type="button"
-                onClick={handleDelete}
+                onClick={() => void handleDelete()}
                 disabled={submitLoading}
                 className="rounded-md px-4 py-2 text-sm font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
               >
@@ -520,6 +450,6 @@ export default function Categories() {
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   );
 }

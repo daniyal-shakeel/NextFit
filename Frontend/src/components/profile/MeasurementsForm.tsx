@@ -154,7 +154,6 @@ export const MeasurementsForm = ({ measurements, onUpdate }: MeasurementsFormPro
         )}
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Size Recommendation */}
         {recommendation && (
           <div className="p-4 bg-primary/10 rounded-lg border border-primary/20">
             <p className="text-sm font-medium text-primary">
@@ -163,7 +162,6 @@ export const MeasurementsForm = ({ measurements, onUpdate }: MeasurementsFormPro
           </div>
         )}
 
-        {/* Body Measurements */}
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="chest" className="flex items-center gap-1">
@@ -239,7 +237,6 @@ export const MeasurementsForm = ({ measurements, onUpdate }: MeasurementsFormPro
           </div>
         </div>
 
-        {/* Height and Weight */}
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="height">Height (cm)</Label>
@@ -271,7 +268,6 @@ export const MeasurementsForm = ({ measurements, onUpdate }: MeasurementsFormPro
           </div>
         </div>
 
-        {/* Preferred Sizes */}
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="shirtSize">Preferred Shirt Size</Label>
