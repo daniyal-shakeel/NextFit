@@ -1,11 +1,8 @@
-/**
- * Firebase client config for Phone Auth (Pakistan +92 only)
- */
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaWRaUqX1Kipjg00-CMz1q2b-Nb8sDn1K9s385",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
@@ -13,11 +10,14 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+const appName = `nextfit-${String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'default')}`;
+
 let app: FirebaseApp;
-if (!getApps().length) {
-  app = initializeApp(firebaseConfig);
+const existing = getApps().find((a) => a.name === appName);
+if (existing) {
+  app = existing as FirebaseApp;
 } else {
-  app = getApps()[0] as FirebaseApp;
+  app = initializeApp(firebaseConfig, appName);
 }
 
 export const firebaseApp = app;
