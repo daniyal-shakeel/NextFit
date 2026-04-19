@@ -1,23 +1,26 @@
-# Base image
-FROM node:25-alpine
+# syntax=docker/dockerfile:1
+# NextFit API: Express + TypeScript → Node (.env.production uses PORT=4000)
 
-# Work directory
+FROM node:22-alpine AS builder
 WORKDIR /app
 
-# Copy package files first (better caching)
-COPY package*.json ./
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Install dependencies
-RUN npm install
-
-# Copy full project
 COPY . .
-
-# Build TypeScript
 RUN npm run build
 
-# Expose port
-EXPOSE 4000
+FROM node:22-alpine AS production
+WORKDIR /app
 
-# Run production build
-CMD ["npm", "run", "start"]
+ENV NODE_ENV=production
+ENV PORT=4000
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --from=builder /app/dist ./dist
+
+USER node
+EXPOSE 4000
+CMD ["node", "dist/app.js"]
