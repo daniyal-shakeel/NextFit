@@ -84,6 +84,8 @@ export interface IUser extends Document {
   billingAddress?: IBillingAddress;
   paymentMethods: IPaymentMethod[];
   bodyMeasurements?: IBodyMeasurements;
+  aiTryOnCount: number;
+  lastAiTryOnAt?: Date;
 }
 
 const userSchema = new Schema<IUser>(
@@ -257,6 +259,15 @@ const userSchema = new Schema<IUser>(
         preferredPantsSize: { type: String, trim: true, maxlength: 20 },
       },
       default: undefined,
+    },
+    aiTryOnCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    lastAiTryOnAt: {
+      type: Date,
+      default: null,
     },
   },
   {

@@ -1,17 +1,26 @@
-set -e
-
 VENV_DIR="$(pwd)/venv"
+ENV=${1:-Development}
+if [ "$ENV" = "Production" ]; then
+    DOTENV_FILE=".env.production"
+else
+    ENV="Development"
+    DOTENV_FILE=".env.development"
+fi
 
-if [ ! -d "$VENV_DIR" ]; then
-  echo "Virtual environment not found. Run setup.sh first."
-  exit 1
+export NEXTFIT_DOTENV_FILE="$(pwd)/$DOTENV_FILE"
+
+if [ ! -f "$NEXTFIT_DOTENV_FILE" ]; then
+    echo "Error: $DOTENV_FILE not found"
+    exit 1
 fi
 
 source "$VENV_DIR/bin/activate"
 
 echo "Starting NextFit AI Service..."
+echo "Environment: $ENV ($DOTENV_FILE)"
 echo "Virtual environment: $VIRTUAL_ENV"
-echo "Device: $(python -c 'import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU only")')"
+echo "Device: $(python3 -c 'import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU only")')"
 echo ""
 
-python main.py
+python3 main.py
+

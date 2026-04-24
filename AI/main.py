@@ -193,23 +193,26 @@ async def tryon(request: TryOnRequest):
     target = modal_url.rstrip("/")
 
     global request_counter
-    with counter_lock:
-        request_counter += 1
-        req_num = request_counter
+    save_debug = os.getenv("SAVE_DEBUG_IMAGES", "false").lower() == "true"
+    
+    if save_debug:
+        with counter_lock:
+            request_counter += 1
+            req_num = request_counter
 
-    save_dir = os.path.join(os.path.dirname(__file__), "requests", str(req_num))
-    os.makedirs(save_dir, exist_ok=True)
+        save_dir = os.path.join(os.path.dirname(__file__), "requests", str(req_num))
+        os.makedirs(save_dir, exist_ok=True)
 
-    person_pil = person_resized
-    agnostic_pil = agnostic
-    cloth_mask_pil = cloth_mask_resized
-    garment_pil = garment_positioned
+        person_pil = person_resized
+        agnostic_pil = agnostic
+        cloth_mask_pil = cloth_mask_resized
+        garment_pil = garment_positioned
 
-    person_pil.save(os.path.join(save_dir, "1_person_original.png"))
-    agnostic_pil.save(os.path.join(save_dir, "2_person_agnostic.png"))
-    cloth_mask_pil.save(os.path.join(save_dir, "3_cloth_mask.png"))
-    garment_pil.save(os.path.join(save_dir, "4_garment_positioned.png"))
-    logger.info(f"Saved debug images to {save_dir}")
+        person_pil.save(os.path.join(save_dir, "1_person_original.png"))
+        agnostic_pil.save(os.path.join(save_dir, "2_person_agnostic.png"))
+        cloth_mask_pil.save(os.path.join(save_dir, "3_cloth_mask.png"))
+        garment_pil.save(os.path.join(save_dir, "4_garment_positioned.png"))
+        logger.info(f"Saved debug images to {save_dir}")
 
     logger.info(f"Forwarding preprocessed images to Modal: {target}")
     print("DEBUG person_image length:", len(original_person_b64) if original_person_b64 else "NONE")
@@ -248,9 +251,10 @@ async def tryon(request: TryOnRequest):
         final_result_pil = raw_result_pil
         final_result_b64 = raw_model_b64
 
-    raw_result_pil.save(os.path.join(save_dir, "5_raw_model_output.png"))
-    final_result_pil.save(os.path.join(save_dir, "6_final_postprocessed.png"))
-    logger.info(f"Saved Modal output images to {save_dir}")
+    if save_debug:
+        raw_result_pil.save(os.path.join(save_dir, "5_raw_model_output.png"))
+        final_result_pil.save(os.path.join(save_dir, "6_final_postprocessed.png"))
+        logger.info(f"Saved Modal output images to {save_dir}")
 
     elapsed = round(time.time() - start, 2)
     logger.info(f"Full pipeline completed in {elapsed}s")

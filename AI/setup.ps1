@@ -36,26 +36,16 @@ Write-Host "Virtual environment active: $env:VIRTUAL_ENV"
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt --upgrade
 
-if (-not (Test-Path "CatVTON")) {
-    Write-Host 'Cloning CatVTON repo...'
-    git clone https://github.com/Zheng-Chong/CatVTON.git
-}
-
-if (Test-Path "CatVTON\requirements.txt") {
-    python -m pip install -r CatVTON\requirements.txt
-}
-
 if (-not (Test-Path ".env")) {
     Copy-Item .env.example .env
-    Write-Host '.env created from template - edit CORS_ORIGIN if needed'
+    Write-Host '.env created from template'
 } else {
     Write-Host '.env already exists'
 }
-
-New-Item -ItemType Directory -Force -Path models | Out-Null
 
 Write-Host ''
 Write-Host '=== Setup Complete ===' -ForegroundColor Green
 Write-Host ''
 Write-Host 'To start server: .\run.ps1'
 Write-Host 'Health check:    curl http://localhost:8000/health'
+

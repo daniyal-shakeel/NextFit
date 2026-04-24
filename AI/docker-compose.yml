@@ -1,0 +1,12 @@
+services:
+  ai-service:
+    build: .
+    container_name: nextfit-ai
+    ports:
+      - "8000:8000"
+    environment:
+      - NEXTFIT_DOTENV_FILE=/app/.env.production
+      - SAVE_DEBUG_IMAGES=false
+    restart: always
+    volumes:
+      - ./requests:/app/requests

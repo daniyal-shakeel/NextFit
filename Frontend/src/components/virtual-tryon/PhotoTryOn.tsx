@@ -12,6 +12,7 @@ import {
   Maximize2,
   RefreshCw,
   Lock,
+  Info,
 } from 'lucide-react';
 import { useTryOnApi } from '@/hooks/useTryOnApi';
 import {
@@ -20,6 +21,8 @@ import {
 } from '@/lib/personTryOnValidation';
 import type { Product } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import { useStore } from '@/store/useStore';
+import { toast } from 'sonner';
 import PhotoGuidancePanel from './PhotoGuidancePanel';
 
 const SERVER_SIZE = 1024;
@@ -89,6 +92,39 @@ function ExpandableResultImage({
   );
 }
 
+function CountdownTimer({ nextAvailableAt, onComplete }: { nextAvailableAt: string; onComplete: () => void }) {
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+
+  useEffect(() => {
+    const target = new Date(nextAvailableAt).getTime();
+    const update = () => {
+      const now = Date.now();
+      const diff = target - now;
+      if (diff <= 0) {
+        setTimeLeft(0);
+        onComplete();
+      } else {
+        setTimeLeft(diff);
+      }
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [nextAvailableAt, onComplete]);
+
+  if (timeLeft <= 0) return null;
+
+  const h = Math.floor(timeLeft / (1000 * 60 * 60));
+  const m = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+  const s = Math.floor((timeLeft % (1000 * 60)) / 1000);
+
+  return (
+    <span className="font-mono font-bold">
+      {h.toString().padStart(2, '0')}:{m.toString().padStart(2, '0')}:{s.toString().padStart(2, '0')}
+    </span>
+  );
+}
+
 export default function PhotoTryOn({ selectedProduct }: Props) {
   const [personImage, setPersonImage] = useState<string | null>(null);
   const [imageDims, setImageDims] = useState<{ w: number; h: number } | null>(null);
@@ -106,6 +142,8 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
   const [garmentChangeMode, setGarmentChangeMode] = useState(false);
   const [cancelledNotice, setCancelledNotice] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<LightboxState>(null);
+  const user = useStore((state) => state.user);
+  const isAuthenticated = useStore((state) => state.isAuthenticated);
   const {
     tryOn,
     cancel,
@@ -115,9 +153,25 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
     preprocessedGarment,
     rawResult,
     error,
+    nextAvailableAt: apiNextAvailableAt,
     processingTime,
     reset,
   } = useTryOnApi();
+
+  const [localNextAvailableAt, setLocalNextAvailableAt] = useState<string | null>(null);
+  const nextAvailableAt = apiNextAvailableAt || localNextAvailableAt;
+
+  useEffect(() => {
+    if (user?.lastAiTryOnAt) {
+      const last = new Date(user.lastAiTryOnAt).getTime();
+      const now = Date.now();
+      const diffHours = (now - last) / (1000 * 60 * 60);
+      if (diffHours < 24) {
+        const next = new Date(last + 24 * 60 * 60 * 1000).toISOString();
+        setLocalNextAvailableAt(next);
+      }
+    }
+  }, [user?.lastAiTryOnAt]);
 
   useEffect(() => {
     if (resultImage) {
@@ -195,18 +249,12 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
       setSizeWarning(null);
       setNeedsResize(false);
 
-      const tooSmall = w < MIN_SIZE || h < MIN_SIZE;
-      const belowOptimal = w < SERVER_SIZE || h < SERVER_SIZE;
+      const isOptimal = w === SERVER_SIZE && h === SERVER_SIZE;
+      setNeedsResize(!isOptimal);
 
-      if (tooSmall) {
-        setNeedsResize(true);
+      if (!isOptimal) {
         setSizeWarning(
-          `Image is ${w}\u00d7${h}px \u2014 below the ${MIN_SIZE}px minimum. Resize to get usable results.`
-        );
-      } else if (belowOptimal) {
-        setNeedsResize(true);
-        setSizeWarning(
-          `Image is ${w}\u00d7${h}px. Resize to ${SERVER_SIZE}\u00d7${SERVER_SIZE} for best results.`
+          `Image is ${w}\u00d7${h}px. You can optimize it to ${SERVER_SIZE}\u00d7${SERVER_SIZE} for better AI results, or continue with the current resolution.`
         );
       }
 
@@ -270,6 +318,14 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
   }, [handleFile, hasCompletedTryOn]);
 
   const handleTryOn = async () => {
+    if (!isAuthenticated) {
+      toast.info('Members Only Feature', {
+        description: 'AI Try-On requires an account. Please sign in to use this feature. You can still proceed with your order as a guest.',
+        duration: 6000,
+      });
+      return;
+    }
+
     if (!personImage || !selectedProduct?.image || !validationOk) return;
     setCancelledNotice(null);
     try {
@@ -348,13 +404,7 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
     setHasCompletedTryOn(false);
     setGarmentOverrideDataUrl(null);
     setGarmentChangeMode(false);
-    setPersonImage(null);
-    setImageDims(null);
-    setNeedsResize(false);
-    setValidationOk(false);
-    setValidationError(null);
-    setLightingWarning(null);
-    setSizeWarning(null);
+    // Preserve personImage, imageDims, and validation state for better UX
   };
 
   const lightboxPortal =
@@ -474,7 +524,7 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
                   ) : (
                     <Maximize2 className="h-3.5 w-3.5" />
                   )}
-                  Resize to {SERVER_SIZE}×{SERVER_SIZE}
+                  Optimize Quality ({SERVER_SIZE}×{SERVER_SIZE})
                 </Button>
               )}
             </div>
@@ -531,22 +581,21 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
           )}
 
           <Button
-            className="w-full"
-            size="lg"
+            type="button"
+            className="w-full h-12 text-base font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-primary/20"
+            disabled={!personImage || !validationOk || isLoading || !!nextAvailableAt}
             onClick={handleTryOn}
-            disabled={
-              !personImage ||
-              !selectedProduct ||
-              isLoading ||
-              isValidating ||
-              !validationOk
-            }
           >
             {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing…
-              </>
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Processing...
+              </span>
+            ) : nextAvailableAt ? (
+              <span className="flex items-center gap-2">
+                <Lock className="h-4 w-4" />
+                Limit Reached
+              </span>
             ) : (
               'Generate Try-On'
             )}
@@ -570,9 +619,70 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
             </div>
           )}
           {error && (
-            <p className="text-sm text-destructive text-center">{error}</p>
+            <div className="flex flex-col items-center gap-2 mt-2">
+              <p className="text-sm text-destructive text-center font-medium bg-destructive/5 px-4 py-2 rounded-lg border border-destructive/10 w-full">
+                {error}
+              </p>
+              {nextAvailableAt && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full border border-border animate-in fade-in slide-in-from-top-1 duration-300">
+                  <RefreshCw className="h-3 w-3 text-primary" />
+                  <span>Available again in:</span>
+                  <CountdownTimer 
+                    nextAvailableAt={nextAvailableAt} 
+                    onComplete={() => reset()} 
+                  />
+                </div>
+              )}
+            </div>
           )}
         </>
+      )}
+
+      {!hasCompletedTryOn && (
+        <div className="mt-8 pt-6 border-t border-border">
+          <h4 className="text-sm font-semibold mb-4 flex items-center gap-2">
+            <Info className="h-4 w-4 text-primary" />
+            Tips for Best Results
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+            <div className="space-y-1">
+              <p className="text-[13px] font-medium">Wait for Ready</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Ensure your nose, shoulders, and hips are in frame. Follow the border hint until it turns green.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[13px] font-medium">Camera Distance</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Step back until your upper body fits comfortably—about arm's length usually works best.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[13px] font-medium">Face Forward</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Stand square to the camera. This mode maps flat images and looks most natural from the front.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[13px] font-medium">Optimized Lighting</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Use bright, even light. Avoid strong backlighting (like windows) to keep your outline sharp.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[13px] font-medium">Product Quality</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                High-quality flat-lay PNGs with transparent backgrounds provide the most seamless torso mapping.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[13px] font-medium">Base Clothing</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Fitted layers work better than loose hoodies, reducing bulk under the virtual overlay.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {hasCompletedTryOn && personImage && (

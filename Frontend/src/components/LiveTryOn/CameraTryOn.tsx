@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Loader2, AlertCircle, Maximize2, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { LiveTryOnCanvas } from '@/components/LiveTryOn/LiveTryOnCanvas';
-import { FrameGuide } from '@/components/LiveTryOn/FrameGuide';
 import type { Product } from '@/lib/types';
-import { getLiveTryOnGarmentImage } from '@/lib/liveTryOnProduct';
-import type { FrameStatus } from '@/utils/poseUtils';
+import { useStore } from './store';
+import Scene from './Scene';
+import WebcamTracker from './WebcamTracker';
 
 interface CameraTryOnProps {
   selectedProduct: Product | null;
@@ -15,19 +14,24 @@ interface CameraTryOnProps {
 export function CameraTryOn({ selectedProduct, tabActive }: CameraTryOnProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [sessionActive, setSessionActive] = useState(false);
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  const [runtimeReady, setRuntimeReady] = useState(false);
-  const [frameStatus, setFrameStatus] = useState<FrameStatus>('out_of_frame');
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const cameraDenied = useStore((state) => state.cameraDenied);
+  const poseReady = useStore((state) => state.poseReady);
+  const modelLoading = useStore((state) => state.modelLoading);
+  const setCameraDenied = useStore((state) => state.setCameraDenied);
+  const setCameraSessionActive = useStore((state) => state.setCameraSessionActive);
 
   useEffect(() => {
     if (!tabActive) {
       setSessionActive(false);
-      setSessionError(null);
-      setRuntimeReady(false);
-      setFrameStatus('out_of_frame');
+      setCameraSessionActive(false);
     }
-  }, [tabActive]);
+  }, [tabActive, setCameraSessionActive]);
+
+  useEffect(() => {
+    setCameraSessionActive(sessionActive);
+  }, [sessionActive, setCameraSessionActive]);
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -42,24 +46,6 @@ export function CameraTryOn({ selectedProduct, tabActive }: CameraTryOnProps) {
       document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
     };
   }, []);
-
-  useEffect(() => {
-    if (!sessionActive || sessionError) {
-      setRuntimeReady(false);
-      return;
-    }
-    let cancelled = false;
-    const t = window.setTimeout(() => {
-      if (!cancelled) setRuntimeReady(true);
-    }, 450);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, [sessionActive, sessionError]);
-
-  const garmentImageUrl = getLiveTryOnGarmentImage(selectedProduct);
-  const streamActive = tabActive && sessionActive && !sessionError;
 
   const toggleFullscreen = async () => {
     const el = containerRef.current;
@@ -82,32 +68,32 @@ export function CameraTryOn({ selectedProduct, tabActive }: CameraTryOnProps) {
           <Camera className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
           <p className="text-base md:text-lg font-medium text-foreground">Enable camera</p>
           <p className="text-xs md:text-sm text-muted-foreground mb-4 px-4 text-center max-w-md">
-            The garment is mapped to your upper body in 2D over the live preview. Camera stops when you leave this tab.
+            The 3D garment is physically mapped to your body over the live preview. Camera stops when you leave this tab.
           </p>
           <Button
             onClick={() => {
-              setSessionError(null);
-              setRuntimeReady(false);
+              setCameraDenied(false);
               setSessionActive(true);
             }}
             size="lg"
+            disabled={modelLoading}
           >
             <Camera className="h-4 w-4 mr-2" />
-            Start camera
+            {modelLoading ? 'Loading 3D Model...' : 'Start Camera'}
           </Button>
         </div>
       )}
 
-      {sessionActive && sessionError && (
+      {sessionActive && cameraDenied && (
         <div className="aspect-video bg-destructive/10 rounded-lg flex flex-col items-center justify-center border border-destructive">
           <AlertCircle className="h-12 w-12 text-destructive mb-4" />
-          <p className="text-base font-medium text-destructive">Error</p>
-          <p className="text-sm text-muted-foreground mb-4 text-center px-4">{sessionError}</p>
+          <p className="text-base font-medium text-destructive">Camera Access Denied</p>
+          <p className="text-sm text-muted-foreground mb-4 text-center px-4">Please allow camera access to use 3D Live Try-On.</p>
           <Button
             variant="outline"
             onClick={() => {
               setSessionActive(false);
-              setSessionError(null);
+              setCameraDenied(false);
             }}
           >
             Close
@@ -115,7 +101,7 @@ export function CameraTryOn({ selectedProduct, tabActive }: CameraTryOnProps) {
         </div>
       )}
 
-      {sessionActive && !sessionError && (
+      {sessionActive && !cameraDenied && (
         <div
           ref={containerRef}
           className={`relative overflow-hidden border border-border bg-black ${
@@ -123,22 +109,23 @@ export function CameraTryOn({ selectedProduct, tabActive }: CameraTryOnProps) {
           }`}
           style={{ minHeight: isFullscreen ? undefined : 280 }}
         >
-          <LiveTryOnCanvas
-            garmentImageUrl={garmentImageUrl}
-            isActive={streamActive}
-            onFrameStatus={setFrameStatus}
-          />
-          {!runtimeReady && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 z-10">
+          {/* New Engine Components */}
+          <WebcamTracker />
+          <Scene />
+
+          {(!poseReady || modelLoading) && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 z-20">
               <Loader2 className="h-10 w-10 animate-spin text-primary mb-2" />
-              <p className="text-sm text-muted-foreground">Starting camera and pose model...</p>
+              <p className="text-sm text-muted-foreground">
+                {!poseReady ? 'Starting AI tracking model...' : 'Loading 3D Garment...'}
+              </p>
             </div>
           )}
-          {runtimeReady && <FrameGuide status={frameStatus} />}
+          
           <Button
             variant="secondary"
             size="icon"
-            className="absolute top-3 right-3 z-20 h-9 w-9 rounded-full bg-background/80 hover:bg-background shadow-md"
+            className="absolute top-3 right-3 z-30 h-9 w-9 rounded-full bg-background/80 hover:bg-background shadow-md"
             onClick={toggleFullscreen}
             title={isFullscreen ? 'Minimize' : 'Maximize'}
           >
@@ -147,13 +134,11 @@ export function CameraTryOn({ selectedProduct, tabActive }: CameraTryOnProps) {
         </div>
       )}
 
-      {sessionActive && !sessionError && (
+      {sessionActive && !cameraDenied && (
         <Button
           variant="outline"
           onClick={() => {
             setSessionActive(false);
-            setRuntimeReady(false);
-            setSessionError(null);
           }}
           className="w-full"
         >

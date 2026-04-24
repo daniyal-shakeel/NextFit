@@ -17,26 +17,16 @@ source "$VENV_DIR/bin/activate"
 echo "Virtual environment active: $VIRTUAL_ENV"
 
 pip install --upgrade pip
-pip install -r requirements.txt
-
-if [ ! -d "CatVTON" ]; then
-  echo "Cloning CatVTON repo..."
-  git clone https://github.com/Zheng-Chong/CatVTON.git
-fi
-
-if [ -f "CatVTON/requirements.txt" ]; then
-  pip install -r CatVTON/requirements.txt
-fi
+pip install -r requirements.txt --upgrade
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo ".env created from template — edit CORS_ORIGIN if needed"
+  echo ".env created from template"
 fi
-  
-mkdir -p models
 
 echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "To start server: bash run.sh"
 echo "Health check:    curl http://localhost:8000/health"
+

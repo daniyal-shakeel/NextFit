@@ -56,6 +56,7 @@ export interface User {
   phoneNumber?: string;
   avatar?: string;
   measurements?: UserMeasurements;
+  lastAiTryOnAt?: string;
 }
 
 export interface UserMeasurements {

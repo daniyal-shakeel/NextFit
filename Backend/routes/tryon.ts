@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import express from 'express';
+import { requireCustomerAuth } from '../middleware/requirePermission.js';
+import User from '../models/User.js';
 
 const router = Router();
 
@@ -115,7 +117,33 @@ function checkImageQuality(
   return { ok: true };
 }
 
-router.post('/tryon', async (req: Request, res: Response) => {
+router.post('/tryon', requireCustomerAuth, async (req: Request, res: Response) => {
+  // Check try-on limit for the user
+  const userId = req.auth?.id;
+  if (!userId) {
+    return res.status(401).json({ message: 'User not authenticated' });
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  const LIMIT_HOURS = 24;
+  const now = new Date();
+  if (user.lastAiTryOnAt) {
+    const timeDiff = now.getTime() - new Date(user.lastAiTryOnAt).getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+
+    if (hoursDiff < LIMIT_HOURS) {
+      const nextAvailableAt = new Date(new Date(user.lastAiTryOnAt).getTime() + LIMIT_HOURS * 60 * 60 * 1000);
+      return res.status(403).json({
+        message: `Trial limit reached. You can try again in ${Math.ceil(LIMIT_HOURS - hoursDiff)} hours.`,
+        nextAvailableAt: nextAvailableAt.toISOString(),
+      });
+    }
+  }
+
   const person = validateBase64Image('person_image', req.body?.person_image, PERSON_MAX_BYTES);
   if (!person.ok) return res.status(400).json({ message: person.message });
 
@@ -187,6 +215,11 @@ router.post('/tryon', async (req: Request, res: Response) => {
         detail: 'Invalid response from AI service',
       });
     }
+
+    // Increment user's try-on count and update timestamp upon success
+    user.aiTryOnCount += 1;
+    user.lastAiTryOnAt = new Date();
+    await user.save();
 
     return res.json({
       result_image: data.result_image,

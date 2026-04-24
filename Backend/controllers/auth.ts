@@ -656,6 +656,7 @@ const login = async (req: Request, res: Response): Promise<Response> => {
           name: user.name,
           authMethod: user.authMethod,
           isEmailVerified: user.isEmailVerified,
+          ...(user.lastAiTryOnAt && { lastAiTryOnAt: user.lastAiTryOnAt }),
         },
       },
     });
@@ -866,6 +867,7 @@ const checkAuth = async (req: Request, res: Response): Promise<Response> => {
           ...(avatar && { avatar }),
           ...(user.customerId && { customerId: user.customerId }),
           ...(user.accountStatus && { accountStatus: user.accountStatus }),
+          ...(user.lastAiTryOnAt && { lastAiTryOnAt: user.lastAiTryOnAt }),
         },
       },
     });
@@ -1134,6 +1136,7 @@ const verifyPhone = async (req: Request, res: Response): Promise<Response> => {
             phone: fullPhone,
             authMethod: existingUser.authMethod,
             isEmailVerified: existingUser.isEmailVerified,
+            ...(existingUser.lastAiTryOnAt && { lastAiTryOnAt: existingUser.lastAiTryOnAt }),
           },
         },
       });
@@ -1296,6 +1299,7 @@ const verifyGoogle = async (req: Request, res: Response): Promise<Response> => {
             avatar: existingByGoogleId.googleAvatar,
             authMethod: existingByGoogleId.authMethod,
             isEmailVerified: true,
+            ...(existingByGoogleId.lastAiTryOnAt && { lastAiTryOnAt: existingByGoogleId.lastAiTryOnAt }),
           },
         },
       });

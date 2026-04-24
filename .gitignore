@@ -127,3 +127,4 @@ uploads/
 docs/
 .cursor/
 nodemon.json
+.agents/

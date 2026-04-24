@@ -21,3 +21,6 @@ __pycache__/
 # Logs
 *.log
 .env.*
+
+# Temporary request data
+requests/

@@ -18,6 +18,7 @@ export function useTryOnApi() {
   const [preprocessedGarment, setPreprocessedGarment] = useState<string | null>(null);
   const [rawResult, setRawResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nextAvailableAt, setNextAvailableAt] = useState<string | null>(null);
   const [processingTime, setProcessingTime] = useState<number | null>(null);
 
   const cancel = useCallback(() => {
@@ -35,6 +36,7 @@ export function useTryOnApi() {
 
     setIsLoading(true);
     setError(null);
+    setNextAvailableAt(null);
     setResultImage(null);
     setPreprocessedPerson(null);
     setPreprocessedGarment(null);
@@ -76,8 +78,21 @@ export function useTryOnApi() {
         );
         return;
       }
+      if (response.status === 403) {
+        const j = await response.json().catch(() => ({}));
+        setError(
+          typeof j.message === 'string' ? j.message : 'Access denied'
+        );
+        if (typeof j.nextAvailableAt === 'string') {
+          setNextAvailableAt(j.nextAvailableAt);
+        }
+        return;
+      }
       if (!response.ok) {
-        setError(`Request failed (${response.status})`);
+        const j = await response.json().catch(() => ({}));
+        setError(
+          typeof j.message === 'string' ? j.message : `Request failed (${response.status})`
+        );
         return;
       }
 
@@ -120,6 +135,7 @@ export function useTryOnApi() {
     setPreprocessedGarment(null);
     setRawResult(null);
     setError(null);
+    setNextAvailableAt(null);
     setProcessingTime(null);
   }, []);
 
@@ -132,6 +148,7 @@ export function useTryOnApi() {
     preprocessedGarment,
     rawResult,
     error,
+    nextAvailableAt,
     processingTime,
     reset,
   };
