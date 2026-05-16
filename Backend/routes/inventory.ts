@@ -8,6 +8,6 @@ const inventoryRouter = express.Router();
 inventoryRouter.get('/analytics', requirePermission(PERMISSIONS.INVENTORY_READ), getAnalytics);
 inventoryRouter.get('/movements', requirePermission(PERMISSIONS.INVENTORY_READ), getMovements);
 inventoryRouter.get('/', requirePermission(PERMISSIONS.INVENTORY_READ), list);
-inventoryRouter.patch('/:productId/stock', requirePermission(PERMISSIONS.INVENTORY_UPDATE), updateStock);
+inventoryRouter.patch('/stock/:productId', requirePermission(PERMISSIONS.INVENTORY_UPDATE), updateStock);
 
 export default inventoryRouter;

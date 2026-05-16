@@ -8,11 +8,14 @@ export interface Product {
   images?: string[];
   features?: string[];
   inStock: boolean;
+  stockQuantity: number;
+  lowStockThreshold: number;
   sizes?: string[];
   colors?: string[];
   rating: number;
   reviews: number;
   tags?: string[];
+  tryOnImage?: string;
   isTrending?: boolean;
   isNew?: boolean;
 }

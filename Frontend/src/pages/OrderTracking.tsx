@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { Check, Package, Truck, Home, ArrowLeft } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { ordersAPI, type OrderResponse } from '@/lib/api';
+import { ordersAPI, productsAPI, apiProductToProduct, type OrderResponse } from '@/lib/api';
 import { useStore } from '@/store/useStore';
 import { CURRENCY } from '@/lib/constants';
+import { toast } from 'sonner';
 
 const steps = [
   { key: 'placed', label: 'Order Placed', icon: Package },
@@ -39,9 +40,13 @@ function deriveTimeline(order: OrderResponse): { status: string; description: st
 
 const OrderTracking = () => {
   const { orderId } = useParams();
+  const navigate = useNavigate();
   const isAuthenticated = useStore((s) => s.isAuthenticated);
+  const addToCart = useStore((s) => s.addToCart);
+  
   const [order, setOrder] = useState<OrderResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reordering, setReordering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guestAcknowledged, setGuestAcknowledged] = useState(false);
 
@@ -55,8 +60,11 @@ const OrderTracking = () => {
     }
     setLoading(true);
     setError(null);
-    const load = isAuthenticated ? ordersAPI.getMine(orderId) : ordersAPI.getPublic(orderId);
-    load
+    const loadPromise = isAuthenticated 
+      ? ordersAPI.getMine(orderId).catch(() => ordersAPI.getPublic(orderId))
+      : ordersAPI.getPublic(orderId);
+
+    loadPromise
       .then((res) => {
         setOrder(res.data);
         setError(null);
@@ -80,6 +88,33 @@ const OrderTracking = () => {
       setGuestAcknowledged(false);
     }
   }, [ackKey, isAuthenticated]);
+
+  const handleReorder = async () => {
+    if (!order || !order.lineItems?.length) return;
+    setReordering(true);
+    try {
+      for (const li of order.lineItems) {
+        try {
+          const res = await productsAPI.getById(li.productId);
+          if (res.success && res.data) {
+            const product = apiProductToProduct(res.data);
+            await addToCart({
+              product,
+              quantity: li.quantity,
+            });
+          }
+        } catch (err) {
+          console.error(`Failed to fetch product ${li.productId} for reorder:`, err);
+        }
+      }
+      toast.success('Items restored to cart');
+      navigate('/checkout');
+    } catch (err) {
+      toast.error('Failed to reorder items');
+    } finally {
+      setReordering(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -239,9 +274,13 @@ const OrderTracking = () => {
             </div>
 
             {order.status === 'cancelled' && (
-              <Link to="/shop">
-                <Button className="w-full">Reorder</Button>
-              </Link>
+              <Button 
+                className="w-full" 
+                disabled={reordering}
+                onClick={handleReorder}
+              >
+                {reordering ? 'Restoring Items…' : 'Reorder'}
+              </Button>
             )}
           </CardContent>
         </Card>

@@ -32,17 +32,25 @@ const ShirtModel = ({ url, onLoaded }) => {
 
   useEffect(() => {
     if (scene) {
+      scene.position.set(0, 0, 0);
+      scene.rotation.set(0, 0, 0);
+      scene.scale.setScalar(1);
+
+      scene.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+
       const box = new THREE.Box3().setFromObject(scene);
       const size = box.getSize(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z);
       if (maxDim > 0) {
-        const scale = 2.0 / maxDim;
+        const scale = 3.5 / maxDim;
         scene.scale.setScalar(scale);
       }
-      const center = new THREE.Box3().setFromObject(scene).getCenter(new THREE.Vector3());
-      scene.position.sub(center);
       
-      // If this model is the one selected for try-on, mark it as loaded
       if (url === selectedGarment) {
         setModelLoading(false);
       }
@@ -94,10 +102,9 @@ const ModelPreview = ({ visible = true }) => {
         </React.Suspense>
         <OrbitControls
           enablePan={false}
-          minDistance={3}
-          maxDistance={10}
-          autoRotate
-          autoRotateSpeed={2}
+          minDistance={2}
+          maxDistance={6}
+          makeDefault
         />
       </Canvas>
     </div>
@@ -118,7 +125,7 @@ export const ModelThumbnail = ({ url }) => {
             <ShirtModel url={url} />
           </ModelErrorBoundary>
         </React.Suspense>
-        <OrbitControls enablePan={false} minDistance={3} maxDistance={10} autoRotate autoRotateSpeed={1} />
+        <OrbitControls enablePan={false} minDistance={2} maxDistance={6} makeDefault />
       </Canvas>
     </div>
   );

@@ -301,14 +301,20 @@ export default function StockMovements() {
                       <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Product
                       </th>
+                      <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Type
+                      </th>
+                      <th className="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Change
+                      </th>
                       <th className="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Stock
                       </th>
-                      <th className="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Threshold
+                      <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Reason
                       </th>
                       <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Changed by
+                        User
                       </th>
                     </tr>
                   </thead>
@@ -324,16 +330,35 @@ export default function StockMovements() {
                         <td className="px-4 py-3.5">
                           <div className="font-medium text-foreground">{m.productName}</div>
                           {m.productSlug ? (
-                            <div className="text-xs text-muted-foreground">{m.productSlug}</div>
+                            <div className="text-xs text-muted-foreground truncate max-w-[150px]">{m.productSlug}</div>
                           ) : null}
                         </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-foreground">
+                        <td className="px-4 py-3.5">
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                            m.changeType === 'order' 
+                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' 
+                              : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}>
+                            {m.changeType}
+                          </span>
+                        </td>
+                        <td className={`px-4 py-3.5 text-right font-bold tabular-nums ${
+                          m.quantityChange > 0 ? 'text-emerald-600' : 'text-rose-600'
+                        }`}>
+                          {m.quantityChange > 0 ? '+' : ''}{m.quantityChange}
+                        </td>
+                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-muted-foreground text-xs">
                           {m.previousStock} → {m.newStock}
                         </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-muted-foreground">
-                          {m.previousThreshold} → {m.newThreshold}
+                        <td className="px-4 py-3.5 text-xs text-muted-foreground max-w-[200px]">
+                          <div className="truncate" title={m.reason}>{m.reason}</div>
+                          {m.orderId && (
+                            <div className="mt-0.5 text-[10px] text-primary/70">
+                              Order: {m.orderId}
+                            </div>
+                          )}
                         </td>
-                        <td className="px-4 py-3.5 text-xs text-muted-foreground">
+                        <td className="px-4 py-3.5 text-xs text-muted-foreground truncate max-w-[120px]">
                           {m.changedByEmail ?? m.changedById ?? "—"}
                         </td>
                       </tr>

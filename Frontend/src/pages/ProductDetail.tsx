@@ -50,9 +50,9 @@ export default function ProductDetail() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [zoomOrigin, setZoomOrigin] = useState<{ x: number; y: number } | null>(null);
   const galleryRef = useRef<HTMLDivElement>(null);
-  const { addToCart } = useStore();
+  const { cart, addToCart } = useStore();
   const navigate = useNavigate();
-
+  
   const handleGalleryMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const el = galleryRef.current;
@@ -82,6 +82,14 @@ export default function ProductDetail() {
   });
 
   const product = productQuery.data ?? null;
+
+  const quantityInCart = useMemo(() => {
+    return cart
+      .filter((item) => item.product.id === id)
+      .reduce((sum, item) => sum + item.quantity, 0);
+  }, [cart, id]);
+
+  const availableToAdd = Math.max(0, (product?.stockQuantity ?? 0) - quantityInCart);
   const relatedProducts = useMemo(() => {
     if (!product || !id) return [];
     const all = listForRelatedQuery.data ?? [];
@@ -144,7 +152,11 @@ export default function ProductDetail() {
       toast.error('Invalid product');
       return;
     }
-    const qty = Math.max(1, Math.min(999, quantity));
+    const qty = Math.max(1, Math.min(availableToAdd, quantity));
+    if (qty <= 0) {
+      toast.error(quantityInCart > 0 ? 'You have already added all available stock to your cart' : 'Product is out of stock');
+      return;
+    }
     try {
       await addToCart({
         product,
@@ -272,9 +284,38 @@ export default function ProductDetail() {
                 </span>
               </div>
 
-              <p className="text-3xl font-bold text-primary">
-                {CURRENCY} {product.price.toFixed(2)}
-              </p>
+              <div className="flex items-center gap-4">
+                <p className="text-3xl font-bold text-primary">
+                  {CURRENCY} {product.price.toFixed(2)}
+                </p>
+                <div className="flex flex-col">
+                  {!product.inStock ? (
+                    <Badge variant="destructive" className="w-fit">Out of Stock</Badge>
+                  ) : product.stockQuantity <= product.lowStockThreshold ? (
+                    <div className="flex flex-col gap-1">
+                      <Badge variant="outline" className="w-fit bg-amber-50 text-amber-700 border-amber-200">
+                        Low Stock: Only {product.stockQuantity} left
+                      </Badge>
+                      {quantityInCart > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          ({quantityInCart} already in cart)
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      <Badge variant="outline" className="w-fit text-green-600 border-green-200 bg-green-50">
+                        In Stock ({product.stockQuantity} available)
+                      </Badge>
+                      {quantityInCart > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          ({quantityInCart} already in cart)
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <p className="text-muted-foreground leading-relaxed">
@@ -334,12 +375,19 @@ export default function ProductDetail() {
                 </button>
                 <span className="w-12 text-center font-medium">{quantity}</span>
                 <button
-                  onClick={() => setQuantity(quantity + 1)}
-                  className="w-10 h-10 rounded-lg border border-border hover:border-primary/50 transition-colors"
+                  onClick={() => setQuantity(Math.min(availableToAdd, quantity + 1))}
+                  disabled={quantity >= availableToAdd || availableToAdd <= 0}
+                  className="w-10 h-10 rounded-lg border border-border hover:border-primary/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   +
                 </button>
               </div>
+              {quantityInCart > 0 && availableToAdd > 0 && (
+                <p className="text-xs text-muted-foreground">You can add {availableToAdd} more units</p>
+              )}
+              {availableToAdd <= 0 && product.stockQuantity > 0 && (
+                <p className="text-xs text-amber-600 font-medium">All available stock is in your cart</p>
+              )}
             </div>
 
             <div className="flex gap-4">
@@ -347,10 +395,10 @@ export default function ProductDetail() {
                 size="lg"
                 className="flex-1"
                 onClick={handleAddToCart}
-                disabled={!product.inStock}
+                disabled={!product.inStock || availableToAdd <= 0}
               >
                 <ShoppingCart className="h-5 w-5 mr-2" />
-                {product.inStock ? 'Add to Cart' : 'Out of Stock'}
+                {!product.inStock ? 'Out of Stock' : availableToAdd <= 0 ? 'Max in Cart' : 'Add to Cart'}
               </Button>
               <Button size="lg" variant="outline">
                 <Heart className="h-5 w-5" />

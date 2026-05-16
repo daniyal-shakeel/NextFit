@@ -297,6 +297,9 @@ export interface ProductPublic {
   reviewCount: number;
   isCustomizable?: boolean;
   tags: string[];
+  stockQuantity: number;
+  lowStockThreshold: number;
+  tryOnImageUrl: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -317,7 +320,10 @@ export function apiProductToProduct(p: ProductPublic): import('@/lib/types').Pro
     images: p.imageUrls,
     features: p.features,
     tags,
-    inStock: true,
+    tryOnImage: p.tryOnImageUrl,
+    inStock: (p.stockQuantity ?? 0) > 0,
+    stockQuantity: p.stockQuantity ?? 0,
+    lowStockThreshold: p.lowStockThreshold ?? 0,
     rating: p.rating ?? 0,
     reviews: p.reviewCount ?? 0,
     isTrending: tags.some((t) => /trending/i.test(t)),
@@ -360,7 +366,14 @@ export const storeAPI = {
 export interface CartItemResponse {
   id: string;
   productId: string;
-  product: { id: string; name: string; basePrice: number; mainImageUrl?: string };
+  product: { 
+    id: string; 
+    name: string; 
+    basePrice: number; 
+    mainImageUrl?: string;
+    stockQuantity?: number;
+    lowStockThreshold?: number;
+  };
   quantity: number;
   size?: string;
   color?: string;
@@ -387,7 +400,9 @@ export function cartResponseToState(
       price: it.unitPrice,
       category: '',
       image: it.product.mainImageUrl ?? '',
-      inStock: true,
+      inStock: (it.product.stockQuantity ?? 1) > 0,
+      stockQuantity: it.product.stockQuantity ?? 0,
+      lowStockThreshold: it.product.lowStockThreshold ?? 0,
       rating: 0,
       reviews: 0,
     },

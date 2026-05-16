@@ -90,6 +90,7 @@ const WebcamTracker = () => {
         await new Promise(resolve => { video.onloadedmetadata = resolve; });
         video.play();
         setCameraDenied(false);
+        setPoseReady(true);
 
         const PoseClass = await waitForPose();
 
@@ -113,7 +114,6 @@ const WebcamTracker = () => {
         });
 
         await poseInstance.initialize();
-        setPoseReady(true);
 
         const processFrame = async () => {
           if (video.readyState === 4 && !processing) {

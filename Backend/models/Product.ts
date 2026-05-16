@@ -15,6 +15,7 @@ export interface IProduct extends Document {
   tags: string[]; 
   stockQuantity: number;
   lowStockThreshold: number;
+  tryOnImageUrl: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -104,6 +105,11 @@ const productSchema = new Schema<IProduct>(
       type: Number,
       default: 0,
       min: [0, 'Low stock threshold cannot be negative'],
+    },
+    tryOnImageUrl: {
+      type: String,
+      required: [true, 'Try-on garment image URL is required'],
+      trim: true,
     },
   },
   {

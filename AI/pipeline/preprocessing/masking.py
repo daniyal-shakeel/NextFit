@@ -45,7 +45,7 @@ def generate_cloth_mask(
         neck_lift = int(h * 0.10)
         neck_mid_y = min(ls[1], rs[1]) - neck_lift
         top_y = max(0, neck_mid_y)
-        bottom_y = min(h, max(px(L_HIP)[1], px(R_HIP)[1]) + int(h * 0.05))
+        bottom_y = h
 
         region = np.zeros((h, w), dtype=np.uint8)
         region[top_y:bottom_y, :] = 255

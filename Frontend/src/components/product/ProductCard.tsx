@@ -17,7 +17,11 @@ const CART_MIN_Q = 1;
 const CART_MAX_Q = 999;
 
 export function ProductCard({ product, index = 0 }: ProductCardProps) {
-  const { addToCart } = useStore();
+  const { cart, addToCart } = useStore();
+  const quantityInCart = cart
+    .filter((item) => item.product.id === product.id)
+    .reduce((sum, item) => sum + item.quantity, 0);
+  const availableToAdd = Math.max(0, product.stockQuantity - quantityInCart);
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -25,7 +29,11 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
       toast.error('Invalid product');
       return;
     }
-    const quantity = Math.max(CART_MIN_Q, Math.min(CART_MAX_Q, 1));
+    if (availableToAdd <= 0) {
+      toast.error('Maximum available stock already in cart');
+      return;
+    }
+    const quantity = Math.max(CART_MIN_Q, Math.min(availableToAdd, 1));
     try {
       await addToCart({
         product,
@@ -65,6 +73,11 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               {!product.inStock && (
                 <Badge variant="destructive">Out of Stock</Badge>
               )}
+              {product.inStock && product.stockQuantity <= product.lowStockThreshold && (
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                  Only {product.stockQuantity} left
+                </Badge>
+              )}
             </div>
 
             <div className="absolute top-3 right-3 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -80,10 +93,10 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               <Button
                 className="w-full"
                 onClick={handleAddToCart}
-                disabled={!product.inStock}
+                disabled={!product.inStock || availableToAdd <= 0}
               >
                 <ShoppingCart className="h-4 w-4 mr-2" />
-                Add to Cart
+                {!product.inStock ? 'Out of Stock' : availableToAdd <= 0 ? 'In Cart' : 'Add to Cart'}
               </Button>
             </div>
           </div>

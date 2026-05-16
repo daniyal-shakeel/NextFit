@@ -109,6 +109,13 @@ export default function Cart() {
                     {item.size && `Size: ${item.size}`} {item.color && `• Color: ${item.color}`}
                   </p>
                   <p className="font-bold text-primary mt-2">{CURRENCY} {item.product.price.toFixed(2)}</p>
+                  {item.product.stockQuantity <= 0 ? (
+                    <p className="text-xs text-destructive font-medium mt-1">Out of stock</p>
+                  ) : item.quantity > item.product.stockQuantity ? (
+                    <p className="text-xs text-destructive font-medium mt-1">Only {item.product.stockQuantity} left</p>
+                  ) : item.product.stockQuantity <= item.product.lowStockThreshold ? (
+                    <p className="text-xs text-amber-600 font-medium mt-1">Only {item.product.stockQuantity} available</p>
+                  ) : null}
                 </div>
                 <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-between">
                   <Button
@@ -134,7 +141,7 @@ export default function Cart() {
                       variant="outline"
                       size="icon"
                       className="h-8 w-8"
-                      disabled={item.quantity >= CART_MAX_Q || updating !== null}
+                      disabled={item.quantity >= (item.product.stockQuantity || CART_MAX_Q) || updating !== null}
                       onClick={() => handleQuantity(item, 1)}
                     >
                       <Plus className="h-3 w-3" />

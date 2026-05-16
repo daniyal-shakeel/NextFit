@@ -17,10 +17,10 @@ def parse_human(person_image: Image.Image) -> dict:
     fgd_model = np.zeros((1, 65), np.float64)
 
     rect = (
-        int(w * 0.1),
-        int(h * 0.05),
-        int(w * 0.8),
-        int(h * 0.9),
+        int(w * 0.05),
+        int(h * 0.0),
+        int(w * 0.9),
+        int(h * 1.0),
     )
 
     cv2.grabCut(

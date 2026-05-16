@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { CartItem, Product, User, ChatMessage, UserMeasurements, Address } from '@/lib/types';
 import { cartAPI, cartResponseToState, authAPI, addressesAPI, type AddressResponse } from '@/lib/api';
 
@@ -98,9 +99,39 @@ interface AppState {
   setSearchQuery: (query: string) => void;
   searchHistory: string[];
   addToSearchHistory: (query: string) => void;
+  
+  isTryOnLoading: boolean;
+  tryOnResultImage: string | null;
+  tryOnPreprocessedPerson: string | null;
+  tryOnPreprocessedGarment: string | null;
+  tryOnRawResult: string | null;
+  tryOnProcessingTime: number | null;
+  tryOnError: string | null;
+  
+  tryOnPersonImage: string | null;
+  hasCompletedTryOn: boolean;
+  tryOnSelectedProduct: Product | null;
+  tryOnActiveTab: string;
+  
+  setTryOnLoading: (isLoading: boolean) => void;
+  setTryOnResults: (data: {
+    resultImage?: string | null;
+    preprocessedPerson?: string | null;
+    preprocessedGarment?: string | null;
+    rawResult?: string | null;
+    processingTime?: number | null;
+    error?: string | null;
+  }) => void;
+  setTryOnPersonImage: (image: string | null) => void;
+  setHasCompletedTryOn: (hasCompleted: boolean) => void;
+  setTryOnSelectedProduct: (product: Product | null) => void;
+  setTryOnActiveTab: (tab: string) => void;
+  resetTryOn: () => void;
 }
 
-export const useStore = create<AppState>()((set, get) => ({
+export const useStore = create<AppState>()(
+  persist(
+    (set, get) => ({
       cart: readGuestCart(),
       cartTotals: null,
       setCartFromServer: (cart, totals) => set({ cart, cartTotals: totals }),
@@ -119,7 +150,11 @@ export const useStore = create<AppState>()((set, get) => ({
         const state = get();
         const productId = item?.product?.id;
         if (!productId) return;
-        const quantity = Math.max(CART_MIN_QUANTITY, Math.min(CART_MAX_QUANTITY, item.quantity || 1));
+        const stockLimit = item.product.stockQuantity ?? CART_MAX_QUANTITY;
+        const quantity = Math.max(CART_MIN_QUANTITY, Math.min(stockLimit, item.quantity || 1));
+        if (stockLimit <= 0) {
+          throw new Error('Product is out of stock');
+        }
         if (state.isAuthenticated) {
           try {
             const res = await cartAPI.addItem({
@@ -139,7 +174,7 @@ export const useStore = create<AppState>()((set, get) => ({
               (i) => i.product.id === productId && i.size === item.size && i.color === item.color
             );
             if (existing) {
-              const newQty = Math.min(CART_MAX_QUANTITY, (existing.quantity ?? 0) + quantity);
+              const newQty = Math.min(item.product.stockQuantity || CART_MAX_QUANTITY, (existing.quantity ?? 0) + quantity);
               const nextCart = s.cart.map((i) =>
                 i.product.id === productId && i.size === item.size && i.color === item.color
                   ? { ...i, quantity: newQty }
@@ -185,7 +220,9 @@ export const useStore = create<AppState>()((set, get) => ({
       },
       updateQuantity: async (productId, quantity, itemId) => {
         const state = get();
-        const qty = Math.max(CART_MIN_QUANTITY, Math.min(CART_MAX_QUANTITY, quantity));
+        const cartItem = state.cart.find((i) => (itemId ? i.id === itemId : i.product.id === productId));
+        const stockLimit = cartItem?.product?.stockQuantity ?? CART_MAX_QUANTITY;
+        const qty = Math.max(CART_MIN_QUANTITY, Math.min(stockLimit, quantity));
         if (state.isAuthenticated) {
           const idToUpdate = itemId ?? state.cart.find((i) => i.product.id === productId)?.id;
           if (!idToUpdate) return;
@@ -329,4 +366,62 @@ export const useStore = create<AppState>()((set, get) => ({
         set((state) => ({
           searchHistory: [query, ...state.searchHistory.filter((q) => q !== query)].slice(0, 10),
         })),
-}));
+
+      isTryOnLoading: false,
+      tryOnResultImage: null,
+      tryOnPreprocessedPerson: null,
+      tryOnPreprocessedGarment: null,
+      tryOnRawResult: null,
+      tryOnProcessingTime: null,
+      tryOnError: null,
+      
+      tryOnPersonImage: null,
+      hasCompletedTryOn: false,
+      tryOnSelectedProduct: null,
+      tryOnActiveTab: 'measurements',
+
+      setTryOnLoading: (isLoading) => set({ isTryOnLoading: isLoading }),
+      setTryOnResults: (data) => set((s) => ({
+        tryOnResultImage: data.resultImage !== undefined ? data.resultImage : s.tryOnResultImage,
+        tryOnPreprocessedPerson: data.preprocessedPerson !== undefined ? data.preprocessedPerson : s.tryOnPreprocessedPerson,
+        tryOnPreprocessedGarment: data.preprocessedGarment !== undefined ? data.preprocessedGarment : s.tryOnPreprocessedGarment,
+        tryOnRawResult: data.rawResult !== undefined ? data.rawResult : s.tryOnRawResult,
+        tryOnProcessingTime: data.processingTime !== undefined ? data.processingTime : s.tryOnProcessingTime,
+        tryOnError: data.error !== undefined ? data.error : s.tryOnError,
+      })),
+      setTryOnPersonImage: (tryOnPersonImage) => set({ tryOnPersonImage }),
+      setHasCompletedTryOn: (hasCompletedTryOn) => set({ hasCompletedTryOn }),
+      setTryOnSelectedProduct: (tryOnSelectedProduct) => set({ tryOnSelectedProduct }),
+      setTryOnActiveTab: (tryOnActiveTab) => set({ tryOnActiveTab }),
+      resetTryOn: () => set({
+        tryOnResultImage: null,
+        tryOnPreprocessedPerson: null,
+        tryOnPreprocessedGarment: null,
+        tryOnRawResult: null,
+        tryOnProcessingTime: null,
+        tryOnError: null,
+        isTryOnLoading: false,
+      }),
+    }),
+    {
+      name: 'nextfit-app-storage',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        user: state.user,
+        isAuthenticated: state.isAuthenticated,
+        searchHistory: state.searchHistory,
+        isTryOnLoading: state.isTryOnLoading,
+        tryOnResultImage: state.tryOnResultImage,
+        tryOnPreprocessedPerson: state.tryOnPreprocessedPerson,
+        tryOnPreprocessedGarment: state.tryOnPreprocessedGarment,
+        tryOnRawResult: state.tryOnRawResult,
+        tryOnProcessingTime: state.tryOnProcessingTime,
+        tryOnError: state.tryOnError,
+        tryOnPersonImage: state.tryOnPersonImage,
+        hasCompletedTryOn: state.hasCompletedTryOn,
+        tryOnSelectedProduct: state.tryOnSelectedProduct,
+        tryOnActiveTab: state.tryOnActiveTab,
+      }),
+    }
+  )
+);

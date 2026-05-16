@@ -111,6 +111,11 @@ export default function Checkout() {
   };
 
   const handlePlaceOrder = async () => {
+    const stockIssues = cart.filter((item) => item.quantity > item.product.stockQuantity);
+    if (stockIssues.length > 0) {
+      toast.error(`The following items in your cart exceed available stock: ${stockIssues.map(i => `${i.product.name} (Available: ${i.product.stockQuantity})`).join(', ')}`);
+      return;
+    }
     const lineItems = cart.map((item) => ({
       productId: item.product.id,
       quantity: item.quantity,
@@ -122,21 +127,23 @@ export default function Checkout() {
     setPlacing(true);
     try {
       const body: Parameters<typeof ordersAPI.create>[0] = { lineItems };
+      
+      const ship: ShippingAddressPayload = {
+        firstName: shippingInfo.firstName,
+        lastName: shippingInfo.lastName,
+        phone: shippingInfo.phone,
+        street: shippingInfo.address,
+        city: shippingInfo.city,
+        province: shippingInfo.province,
+        zipCode: shippingInfo.zip,
+      };
+      const emailTrim = shippingInfo.email.trim();
+      if (emailTrim) ship.email = emailTrim;
+      body.shippingAddress = ship;
+
       if (selectedAddressId) {
         body.addressId = selectedAddressId;
       } else {
-        const ship: ShippingAddressPayload = {
-          firstName: shippingInfo.firstName,
-          lastName: shippingInfo.lastName,
-          phone: shippingInfo.phone,
-          street: shippingInfo.address,
-          city: shippingInfo.city,
-          province: shippingInfo.province,
-          zipCode: shippingInfo.zip,
-        };
-        const emailTrim = shippingInfo.email.trim();
-        if (emailTrim) ship.email = emailTrim;
-        body.shippingAddress = ship;
         if (saveAddress) body.saveAddress = true;
         if (setAsDefault) body.setAsDefault = true;
       }

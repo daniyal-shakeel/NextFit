@@ -409,6 +409,10 @@ export const getMovements = async (req: Request, res: Response): Promise<Respons
         productSlug: pop?.slug,
         previousStock: r.previousStock,
         newStock: r.newStock,
+        quantityChange: r.quantityChange ?? (r.newStock - r.previousStock),
+        changeType: r.changeType ?? 'manual',
+        reason: r.reason ?? 'Legacy entry',
+        orderId: r.orderId ? String(r.orderId) : undefined,
         previousThreshold: r.previousThreshold,
         newThreshold: r.newThreshold,
         changedByEmail: r.changedByEmail ?? null,
@@ -481,13 +485,19 @@ export const updateStock = async (req: Request, res: Response): Promise<Response
 
     if (stockQuantity !== undefined) product.stockQuantity = stockQuantity;
     if (lowStockThreshold !== undefined) product.lowStockThreshold = lowStockThreshold;
-    await product.save();
+    await product.save({ validateModifiedOnly: true });
 
     const auth = req.auth as AuthPayload | undefined;
+    const qtyChange = (product.stockQuantity ?? 0) - prevStock;
+    const changeDirection = qtyChange >= 0 ? 'Increased' : 'Decreased';
+
     await InventoryStockLog.create({
       productId: product._id,
       previousStock: prevStock,
       newStock: product.stockQuantity ?? 0,
+      quantityChange: qtyChange,
+      changeType: 'manual',
+      reason: `Manual Update: ${changeDirection} by admin`,
       previousThreshold: prevTh,
       newThreshold: product.lowStockThreshold ?? 0,
       changedByEmail: auth?.email,

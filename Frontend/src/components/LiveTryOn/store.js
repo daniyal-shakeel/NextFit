@@ -30,6 +30,9 @@ export const useStore = create((set) => ({
   setPoseReady: (ready) => set({ poseReady: ready }),
   setModelLoading: (loading) => set({ modelLoading: loading }),
   setCameraSessionActive: (active) => set({ cameraSessionActive: active }),
-  setSelectedGarment: (path) => set({ selectedGarment: path, modelLoading: true }),
+  setSelectedGarment: (path) => set((state) => {
+    if (state.selectedGarment === path) return {};
+    return { selectedGarment: path, modelLoading: true };
+  }),
   setAppMode: (mode) => set({ appMode: mode, landmarks: null, cameraDenied: false, poseReady: false, modelLoading: true })
 }));

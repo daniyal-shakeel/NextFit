@@ -151,3 +151,25 @@ export function requireCustomerAuth(req: Request, res: Response, next: NextFunct
   req.auth = decoded;
   next();
 }
+export function populateAuth(req: Request, res: Response, next: NextFunction): void {
+  const token =
+    req.cookies?.authToken ??
+    (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null);
+
+  if (!token) {
+    return next();
+  }
+
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret || typeof jwtSecret !== 'string') {
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, jwtSecret) as AuthPayload;
+    req.auth = decoded;
+  } catch {
+    // Ignore invalid tokens for optional auth
+  }
+  next();
+}

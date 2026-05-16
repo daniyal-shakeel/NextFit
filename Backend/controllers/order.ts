@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Order, { type OrderStatus } from '../models/Order.js';
 import Product from '../models/Product.js';
 import User from '../models/User.js';
+import InventoryStockLog from '../models/InventoryStockLog.js';
 import Address from '../models/Address.js';
 import { HTTP_STATUS } from '../constants/errorCodes.js';
 import type { AuthPayload } from '../middleware/requirePermission.js';
@@ -60,9 +61,10 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       });
     }
 
+    let currentUser: any = null;
     if (isAuthedCustomer) {
-      const user = await User.findById(customerId);
-      if (!user || user.accountStatus !== 'active') {
+      currentUser = await User.findById(customerId).lean();
+      if (!currentUser || currentUser.accountStatus !== 'active') {
         return res.status(HTTP_STATUS.FORBIDDEN).json({ success: false, message: 'Account not active' });
       }
     }
@@ -82,6 +84,10 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
           province: provinceFromSaved(s),
           zipCode: saved.zipCode,
           label: saved.label,
+          firstName: currentUser?.name?.split(' ')[0] || '',
+          lastName: currentUser?.name?.split(' ').slice(1).join(' ') || '',
+          phone: currentUser?.phone || '',
+          email: currentUser?.email || currentUser?.googleEmail || '',
         };
       }
     }
@@ -110,24 +116,32 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
         phone: typeof s.phone === 'string' ? s.phone.trim() : undefined,
         email: typeof s.email === 'string' ? s.email.trim() : undefined,
       };
-      if (isAuthedCustomer && body.saveAddress && shippingSnapshot.street && shippingSnapshot.city) {
-        const isDefault = Boolean(body.setAsDefault);
-        if (isDefault) {
-          await Address.updateMany(
-            { userId: new mongoose.Types.ObjectId(customerId) },
-            { $set: { isDefault: false } }
-          );
-        }
-        await Address.create({
-          userId: new mongoose.Types.ObjectId(customerId),
-          label: shippingSnapshot.label || 'Checkout',
-          street: shippingSnapshot.street,
-          city: shippingSnapshot.city,
-          province: shippingSnapshot.province || '',
-          zipCode: shippingSnapshot.zipCode || '',
-          isDefault,
-        });
+    } else if (shippingSnapshot && body.shippingAddress && typeof body.shippingAddress === 'object') {
+      // Allow overriding contact info even with addressId
+      const s = body.shippingAddress as Record<string, unknown>;
+      if (typeof s.firstName === 'string') shippingSnapshot.firstName = s.firstName.trim();
+      if (typeof s.lastName === 'string') shippingSnapshot.lastName = s.lastName.trim();
+      if (typeof s.phone === 'string') shippingSnapshot.phone = s.phone.trim();
+      if (typeof s.email === 'string') shippingSnapshot.email = s.email.trim();
+    }
+
+    if (isAuthedCustomer && body.saveAddress && shippingSnapshot?.street && shippingSnapshot?.city) {
+      const isDefault = Boolean(body.setAsDefault);
+      if (isDefault) {
+        await Address.updateMany(
+          { userId: new mongoose.Types.ObjectId(customerId) },
+          { $set: { isDefault: false } }
+        );
       }
+      await Address.create({
+        userId: new mongoose.Types.ObjectId(customerId),
+        label: shippingSnapshot.label || 'Checkout',
+        street: shippingSnapshot.street,
+        city: shippingSnapshot.city,
+        province: shippingSnapshot.province || '',
+        zipCode: shippingSnapshot.zipCode || '',
+        isDefault,
+      });
     }
 
     if (!shippingSnapshot?.street || !shippingSnapshot?.city) {
@@ -152,6 +166,18 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       if (!pid || !mongoose.isValidObjectId(pid)) continue;
       const product = await Product.findById(pid);
       if (!product) continue;
+      if (product.stockQuantity <= 0) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: `Product ${product.name} is out of stock`,
+        });
+      }
+      if (qty > product.stockQuantity) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: `Insufficient stock for ${product.name}. Available: ${product.stockQuantity}`,
+        });
+      }
       const priceAtOrder = product.basePrice;
       const lineSubtotal = priceAtOrder * qty;
       builtLines.push({
@@ -438,14 +464,45 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
         message: `status must be one of: ${VALID_STATUSES.join(', ')}`,
       });
     }
-    const order = await Order.findByIdAndUpdate(
-      id,
-      { status: status as OrderStatus },
-      { new: true, runValidators: true }
-    ).populate('userId', ADMIN_ORDER_USER_POPULATE);
+    const order = await Order.findById(id).populate('userId', ADMIN_ORDER_USER_POPULATE);
     if (!order) {
       return res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, message: 'Order not found' });
     }
+
+    const previousStatus = order.status;
+    const newStatus = status as OrderStatus;
+
+    order.status = newStatus;
+    await order.save();
+
+    // If order becomes delivered, reduce stock
+    if (newStatus === 'delivered' && previousStatus !== 'delivered') {
+      const auth = req.auth as AuthPayload | undefined;
+
+      for (const item of order.lineItems) {
+        const product = await Product.findById(item.productId);
+        if (product) {
+          const prevStock = product.stockQuantity;
+          product.stockQuantity = Math.max(0, product.stockQuantity - item.quantity);
+          await product.save({ validateModifiedOnly: true });
+
+          await InventoryStockLog.create({
+            productId: product._id,
+            previousStock: prevStock,
+            newStock: product.stockQuantity,
+            quantityChange: -item.quantity,
+            changeType: 'order',
+            reason: `Order Delivery: Reduced by ${item.quantity} for order #${order.orderNumber || order._id}`,
+            orderId: order._id,
+            previousThreshold: product.lowStockThreshold,
+            newThreshold: product.lowStockThreshold,
+            changedByEmail: auth?.email,
+            changedById: auth?.id,
+          });
+        }
+      }
+    }
+
     return res.status(HTTP_STATUS.OK).json({ success: true, message: 'Order status updated', data: order });
   } catch (e) {
     console.error('Order updateStatus error:', e);

@@ -3,7 +3,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import logging
-import threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,14 +13,14 @@ from ai_utils.image_utils import decode_base64_image, encode_image_base64, prepr
 from pipeline.preprocessing.pose import extract_pose
 from pipeline.preprocessing.measurements import extract_measurements
 from pipeline.preprocessing.masking import generate_cloth_mask, generate_agnostic_image
+from ai_utils.image_saver import get_request_storage, save_pil_image
 
 load_dotenv(os.environ.get("NEXTFIT_DOTENV_FILE") or ".env")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-request_counter = 0
-counter_lock = threading.Lock()
+
 
 
 @asynccontextmanager
@@ -54,7 +53,7 @@ class TryOnResponse(BaseModel):
     processing_time: float
 
 
-@app.get("/health")
+@app.get("/")
 async def health():
     return {
         "status": "ok",
@@ -139,13 +138,14 @@ async def tryon(request: TryOnRequest):
 
     start = time.time()
     modal_url = os.getenv("MODAL_AI_URL")
+    storage_dir = None
 
     original_person_b64 = request.person_image
     original_garment_b64 = request.garment_image
 
     try:
-        person_img = decode_base64_image(request.person_image)
-        person_img = preprocess_person(person_img).convert("RGB")
+        person_orig_pil = decode_base64_image(request.person_image)
+        person_img = preprocess_person(person_orig_pil).convert("RGB")
 
         logger.info("Local preprocessing: extracting pose...")
         pose_data = extract_pose(person_img)
@@ -174,6 +174,12 @@ async def tryon(request: TryOnRequest):
         agnostic_b64 = encode_image_base64(agnostic)
         garment_positioned_b64 = encode_image_base64(garment_positioned)
         cloth_mask_b64 = encode_image_base64(cloth_mask_resized)
+
+        storage_dir = get_request_storage()
+        save_pil_image(storage_dir, "1_person_original.png", person_orig_pil)
+        save_pil_image(storage_dir, "2_person_agnostic.png", agnostic)
+        save_pil_image(storage_dir, "3_cloth_mask.png", cloth_mask_resized)
+        save_pil_image(storage_dir, "4_garment_positioned.png", garment_positioned)
     except Exception as e:
         logger.error(f"Local preprocessing failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -192,27 +198,6 @@ async def tryon(request: TryOnRequest):
     import requests as req_lib
     target = modal_url.rstrip("/")
 
-    global request_counter
-    save_debug = os.getenv("SAVE_DEBUG_IMAGES", "false").lower() == "true"
-    
-    if save_debug:
-        with counter_lock:
-            request_counter += 1
-            req_num = request_counter
-
-        save_dir = os.path.join(os.path.dirname(__file__), "requests", str(req_num))
-        os.makedirs(save_dir, exist_ok=True)
-
-        person_pil = person_resized
-        agnostic_pil = agnostic
-        cloth_mask_pil = cloth_mask_resized
-        garment_pil = garment_positioned
-
-        person_pil.save(os.path.join(save_dir, "1_person_original.png"))
-        agnostic_pil.save(os.path.join(save_dir, "2_person_agnostic.png"))
-        cloth_mask_pil.save(os.path.join(save_dir, "3_cloth_mask.png"))
-        garment_pil.save(os.path.join(save_dir, "4_garment_positioned.png"))
-        logger.info(f"Saved debug images to {save_dir}")
 
     logger.info(f"Forwarding preprocessed images to Modal: {target}")
     print("DEBUG person_image length:", len(original_person_b64) if original_person_b64 else "NONE")
@@ -251,10 +236,8 @@ async def tryon(request: TryOnRequest):
         final_result_pil = raw_result_pil
         final_result_b64 = raw_model_b64
 
-    if save_debug:
-        raw_result_pil.save(os.path.join(save_dir, "5_raw_model_output.png"))
-        final_result_pil.save(os.path.join(save_dir, "6_final_postprocessed.png"))
-        logger.info(f"Saved Modal output images to {save_dir}")
+    save_pil_image(storage_dir, "5_raw_model_output.png", raw_result_pil)
+    save_pil_image(storage_dir, "6_final_postprocessed.png", final_result_pil)
 
     elapsed = round(time.time() - start, 2)
     logger.info(f"Full pipeline completed in {elapsed}s")

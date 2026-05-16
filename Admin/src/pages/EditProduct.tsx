@@ -40,7 +40,7 @@ function categoryIdFromProduct(p: ProductItem): string {
   return typeof c === "string" ? c : "";
 }
 
-type PasteTarget = "primary" | 0 | 1 | 2;
+type PasteTarget = "primary" | "tryOn" | 0 | 1 | 2;
 
 type ImageSlot = {
   manualUrl: string;
@@ -79,6 +79,7 @@ export default function EditProduct() {
   const [formReviewCount, setFormReviewCount] = useState("0");
 
   const [primary, setPrimary] = useState<ImageSlot>(() => emptySlot());
+  const [tryOn, setTryOn] = useState<ImageSlot>(() => emptySlot());
   const [secondary, setSecondary] = useState<ImageSlot[]>(() => [emptySlot(), emptySlot(), emptySlot()]);
   const pasteTargetRef = useRef<PasteTarget>("primary");
 
@@ -134,6 +135,7 @@ export default function EditProduct() {
         setFormTags((p.tags ?? []).join(", "));
         setFormReviewCount(String(p.reviewCount ?? 0));
         setPrimary({ ...emptySlot(), manualUrl: p.mainImageUrl });
+        setTryOn({ ...emptySlot(), manualUrl: p.tryOnImageUrl });
         const urls = p.imageUrls ?? [];
         setSecondary([
           { ...emptySlot(), manualUrl: urls[0] ?? "" },
@@ -164,19 +166,21 @@ export default function EditProduct() {
 
   const processFileForSlot = async (
     file: File | null,
-    which: "primary" | number
+    which: "primary" | "tryOn" | number
   ) => {
     if (!file) return;
     const allowed = ["image/jpeg", "image/png", "image/webp"];
     if (!allowed.includes(file.type)) {
       const msg = "Invalid file type. Use JPG, PNG, or WebP.";
       if (which === "primary") setPrimarySlot((s) => ({ ...s, error: msg }));
+      else if (which === "tryOn") setTryOn((s) => ({ ...s, error: msg }));
       else setSecondarySlot(which as number, (s) => ({ ...s, error: msg }));
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
       const msg = "Image must be 2MB or smaller.";
       if (which === "primary") setPrimarySlot((s) => ({ ...s, error: msg }));
+      else if (which === "tryOn") setTryOn((s) => ({ ...s, error: msg }));
       else setSecondarySlot(which as number, (s) => ({ ...s, error: msg }));
       return;
     }
@@ -188,6 +192,8 @@ export default function EditProduct() {
 
     if (which === "primary") {
       setPrimarySlot(applySlot);
+    } else if (which === "tryOn") {
+      setTryOn(applySlot);
     } else {
       setSecondarySlot(which, applySlot);
     }
@@ -197,6 +203,11 @@ export default function EditProduct() {
       const preview = URL.createObjectURL(resized);
       if (which === "primary") {
         setPrimary((s) => {
+          if (s.preview) URL.revokeObjectURL(s.preview);
+          return { ...s, preview, uploading: true, error: null };
+        });
+      } else if (which === "tryOn") {
+        setTryOn((s) => {
           if (s.preview) URL.revokeObjectURL(s.preview);
           return { ...s, preview, uploading: true, error: null };
         });
@@ -214,6 +225,8 @@ export default function EditProduct() {
       const url = up.data.imageUrl;
       if (which === "primary") {
         setPrimary((s) => ({ ...s, cloudUrl: url, uploading: false, error: null }));
+      } else if (which === "tryOn") {
+        setTryOn((s) => ({ ...s, cloudUrl: url, uploading: false, error: null }));
       } else {
         setSecondary((prev) =>
           prev.map((s, i) => (i === which ? { ...s, cloudUrl: url, uploading: false, error: null } : s))
@@ -223,6 +236,8 @@ export default function EditProduct() {
       const msg = e instanceof Error ? e.message : "Upload failed";
       if (which === "primary") {
         setPrimary((s) => ({ ...s, uploading: false, error: msg }));
+      } else if (which === "tryOn") {
+        setTryOn((s) => ({ ...s, uploading: false, error: msg }));
       } else {
         setSecondary((prev) =>
           prev.map((s, i) => (i === which ? { ...s, uploading: false, error: msg } : s))
@@ -262,6 +277,7 @@ export default function EditProduct() {
   }, []);
 
   const primaryFinalUrl = (primary.cloudUrl || primary.manualUrl.trim()).trim();
+  const tryOnFinalUrl = (tryOn.cloudUrl || tryOn.manualUrl.trim()).trim();
 
   const handleSuggestDescription = async () => {
     const name = formName.trim() || "this product";
@@ -362,7 +378,11 @@ export default function EditProduct() {
       setError("Primary image is required (upload a file or enter an image URL).");
       return;
     }
-    if (primary.uploading || secondary.some((s) => s.uploading)) {
+    if (!tryOnFinalUrl) {
+      setError("Try-on garment image is required (upload a file or enter an image URL).");
+      return;
+    }
+    if (primary.uploading || tryOn.uploading || secondary.some((s) => s.uploading)) {
       setError("Wait for image uploads to finish.");
       return;
     }
@@ -390,6 +410,7 @@ export default function EditProduct() {
         tags: parseList(formTags),
         rating: Math.min(5, Math.max(0, Number(formRating) || 0)),
         reviewCount: Math.max(0, Number(formReviewCount) || 0),
+        tryOnImageUrl: tryOnFinalUrl,
       });
       navigate("/products", { replace: true });
     } catch (err) {
@@ -399,7 +420,7 @@ export default function EditProduct() {
     }
   };
 
-  const dropHandlers = (which: "primary" | number) => ({
+  const dropHandlers = (which: "primary" | "tryOn" | number) => ({
     onDragOver: (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -425,7 +446,7 @@ export default function EditProduct() {
     label: string;
     optionalLabel?: string;
     slot: ImageSlot;
-    which: "primary" | number;
+    which: "primary" | "tryOn" | number;
     urlHint: string;
     compact?: boolean;
   }) => (
@@ -496,6 +517,7 @@ export default function EditProduct() {
               onChange={(e) => {
                 const v = e.target.value;
                 if (which === "primary") setPrimarySlot((s) => ({ ...s, manualUrl: v }));
+                else if (which === "tryOn") setTryOn((s) => ({ ...s, manualUrl: v }));
                 else setSecondarySlot(which as number, (s) => ({ ...s, manualUrl: v }));
               }}
               placeholder="https://…"
@@ -715,6 +737,13 @@ export default function EditProduct() {
                   slot={primary}
                   which="primary"
                   urlHint="Or enter image URL (optional if you uploaded a file)"
+                />
+                
+                <ImageBlock
+                  label="Try-On Garment (Hidden) *"
+                  slot={tryOn}
+                  which="tryOn"
+                  urlHint="URL for clean garment-only image"
                 />
 
                 <div className="space-y-2 pt-1">

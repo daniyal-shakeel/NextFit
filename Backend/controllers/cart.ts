@@ -32,7 +32,7 @@ function paramString(value: string | string[] | undefined): string | undefined {
 
 interface PopulatedItem {
   _id: mongoose.Types.ObjectId;
-  productId: { _id: mongoose.Types.ObjectId; name: string; basePrice: number; mainImageUrl?: string };
+  productId: { _id: mongoose.Types.ObjectId; name: string; basePrice: number; mainImageUrl?: string; stockQuantity: number; lowStockThreshold: number };
   quantity: number;
   size?: string;
   color?: string;
@@ -42,7 +42,7 @@ async function buildCartPayload(doc: { items: PopulatedItem[] } | null): Promise
   items: Array<{
     id: string;
     productId: string;
-    product: { id: string; name: string; basePrice: number; mainImageUrl?: string };
+    product: { id: string; name: string; basePrice: number; mainImageUrl?: string; stockQuantity: number; lowStockThreshold: number };
     quantity: number;
     size?: string;
     color?: string;
@@ -57,7 +57,7 @@ async function buildCartPayload(doc: { items: PopulatedItem[] } | null): Promise
     return { items: [], subtotal: 0, shipping: 0, total: 0 };
   }
   const items = doc.items.map((it) => {
-    const product = it.productId as unknown as { _id: mongoose.Types.ObjectId; name: string; basePrice: number; mainImageUrl?: string };
+    const product = it.productId;
     const unitPrice = Number(product?.basePrice) || 0;
     const qty = Math.max(MIN_QUANTITY, Math.min(MAX_QUANTITY, it.quantity));
     const lineTotal = unitPrice * qty;
@@ -69,6 +69,8 @@ async function buildCartPayload(doc: { items: PopulatedItem[] } | null): Promise
         name: product?.name ?? '',
         basePrice: unitPrice,
         mainImageUrl: product?.mainImageUrl,
+        stockQuantity: product?.stockQuantity ?? 0,
+        lowStockThreshold: product?.lowStockThreshold ?? 0,
       },
       quantity: qty,
       size: it.size,
@@ -90,12 +92,12 @@ export const getMine = async (req: Request, res: Response): Promise<Response> =>
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({ success: false, message: 'Unauthorized' });
     }
     let doc = await Cart.findOne({ userId: new mongoose.Types.ObjectId(userId) })
-      .populate('items.productId', 'name basePrice mainImageUrl')
+      .populate('items.productId', 'name basePrice mainImageUrl stockQuantity lowStockThreshold')
       .lean();
     if (!doc) {
       await Cart.create({ userId: new mongoose.Types.ObjectId(userId), items: [] });
       doc = await Cart.findOne({ userId: new mongoose.Types.ObjectId(userId) })
-        .populate('items.productId', 'name basePrice mainImageUrl')
+        .populate('items.productId', 'name basePrice mainImageUrl stockQuantity lowStockThreshold')
         .lean();
     }
     const payload = await buildCartPayload(doc as unknown as { items: PopulatedItem[] });
@@ -130,11 +132,14 @@ export const updateMine = async (req: Request, res: Response): Promise<Response>
       const product = await Product.findById(pid);
       if (!product) continue;
       const quantity = ensureQuantity(it?.quantity);
+      if (product.stockQuantity <= 0) continue;
+      const finalQty = Math.min(quantity, product.stockQuantity);
+      
       const size = trimOptionalString(it?.size, 50);
       const color = trimOptionalString(it?.color, 50);
       items.push({
         productId: new mongoose.Types.ObjectId(pid),
-        quantity,
+        quantity: finalQty,
         ...(size !== undefined && { size }),
         ...(color !== undefined && { color }),
       });
@@ -145,7 +150,7 @@ export const updateMine = async (req: Request, res: Response): Promise<Response>
       { new: true, upsert: true, runValidators: true }
     );
     const populated = await Cart.findById(doc._id)
-      .populate('items.productId', 'name basePrice mainImageUrl')
+      .populate('items.productId', 'name basePrice mainImageUrl stockQuantity lowStockThreshold')
       .lean();
     const payload = await buildCartPayload(populated as unknown as { items: PopulatedItem[] });
     return res.status(HTTP_STATUS.OK).json({ success: true, data: payload });
@@ -184,6 +189,20 @@ export const addItem = async (req: Request, res: Response): Promise<Response> =>
       });
     }
 
+    if (product.stockQuantity <= 0) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        success: false,
+        message: 'Product is out of stock',
+      });
+    }
+
+    if (quantity > product.stockQuantity) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        success: false,
+        message: `Only ${product.stockQuantity} units available`,
+      });
+    }
+
     const oid = new mongoose.Types.ObjectId(productId as string);
     let doc = await Cart.findOne({ userId: new mongoose.Types.ObjectId(userId) });
     if (!doc) {
@@ -199,7 +218,14 @@ export const addItem = async (req: Request, res: Response): Promise<Response> =>
           (i.color ?? '') === (color ?? '')
       );
       if (sameLine) {
-        sameLine.quantity = Math.min(MAX_QUANTITY, sameLine.quantity + quantity);
+        const newQty = sameLine.quantity + quantity;
+        if (newQty > product.stockQuantity) {
+          return res.status(HTTP_STATUS.BAD_REQUEST).json({
+            success: false,
+            message: `Cannot add more. Total in cart would exceed available stock (${product.stockQuantity})`,
+          });
+        }
+        sameLine.quantity = Math.min(MAX_QUANTITY, newQty);
       } else {
         if (doc.items.length >= MAX_ITEMS) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
@@ -213,7 +239,7 @@ export const addItem = async (req: Request, res: Response): Promise<Response> =>
     }
 
     const populated = await Cart.findById(doc._id)
-      .populate('items.productId', 'name basePrice mainImageUrl')
+      .populate('items.productId', 'name basePrice mainImageUrl stockQuantity lowStockThreshold')
       .lean();
     const payload = await buildCartPayload(populated as unknown as { items: PopulatedItem[] });
     return res.status(HTTP_STATUS.OK).json({ success: true, data: payload });
@@ -259,11 +285,18 @@ export const updateItem = async (req: Request, res: Response): Promise<Response>
         message: 'Cart item not found',
       });
     }
+    const p = await Product.findById(item.productId);
+    if (p && quantity > p.stockQuantity) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        success: false,
+        message: `Only ${p.stockQuantity} units available`,
+      });
+    }
     item.quantity = quantity;
     await doc.save();
 
     const populated = await Cart.findById(doc._id)
-      .populate('items.productId', 'name basePrice mainImageUrl')
+      .populate('items.productId', 'name basePrice mainImageUrl stockQuantity lowStockThreshold')
       .lean();
     const payload = await buildCartPayload(populated as unknown as { items: PopulatedItem[] });
     return res.status(HTTP_STATUS.OK).json({ success: true, data: payload });
@@ -301,7 +334,7 @@ export const removeItem = async (req: Request, res: Response): Promise<Response>
       return res.status(HTTP_STATUS.OK).json({ success: true, data: payload });
     }
     const populated = await Cart.findById(doc._id)
-      .populate('items.productId', 'name basePrice mainImageUrl')
+      .populate('items.productId', 'name basePrice mainImageUrl stockQuantity lowStockThreshold')
       .lean();
     const payload = await buildCartPayload(populated as unknown as { items: PopulatedItem[] });
     return res.status(HTTP_STATUS.OK).json({ success: true, data: payload });

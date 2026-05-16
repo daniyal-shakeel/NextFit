@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -13,7 +14,12 @@ import {
   RefreshCw,
   Lock,
   Info,
+  Crop,
+  Unlock,
+  ChevronRight,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { useStore } from '@/store/useStore';
 import { useTryOnApi } from '@/hooks/useTryOnApi';
 import {
   getImageAverageBrightness,
@@ -21,12 +27,33 @@ import {
 } from '@/lib/personTryOnValidation';
 import type { Product } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { useStore } from '@/store/useStore';
-import { toast } from 'sonner';
 import PhotoGuidancePanel from './PhotoGuidancePanel';
 
 const SERVER_SIZE = 1024;
 const MIN_SIZE = 512;
+
+function cropImageDataUrl(
+  dataUrl: string,
+  pixelX: number,
+  pixelY: number,
+  pixelW: number,
+  pixelH: number
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = pixelW;
+      canvas.height = pixelH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Canvas not supported'));
+      ctx.drawImage(img, pixelX, pixelY, pixelW, pixelH, 0, 0, pixelW, pixelH);
+      resolve(canvas.toDataURL('image/jpeg', 0.95));
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = dataUrl;
+  });
+}
 
 function resizeImageDataUrl(
   dataUrl: string,
@@ -36,13 +63,17 @@ function resizeImageDataUrl(
   return new Promise((resolve, reject) => {
     const img = new window.Image();
     img.onload = () => {
+      const scale = Math.max(targetW / img.width, targetH / img.height);
+      const finalW = Math.round(img.width * scale);
+      const finalH = Math.round(img.height * scale);
+
       const canvas = document.createElement('canvas');
-      canvas.width = targetW;
-      canvas.height = targetH;
+      canvas.width = finalW;
+      canvas.height = finalH;
       const ctx = canvas.getContext('2d');
       if (!ctx) return reject(new Error('Canvas not supported'));
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(img, 0, 0, targetW, targetH);
+      ctx.drawImage(img, 0, 0, finalW, finalH);
       resolve(canvas.toDataURL('image/jpeg', 0.92));
     };
     img.onerror = () => reject(new Error('Failed to load image'));
@@ -55,6 +86,226 @@ interface Props {
 }
 
 type LightboxState = { src: string; alt: string } | null;
+
+function CropOverlay({
+  image,
+  onCrop,
+  onSkip,
+  onCancel,
+}: {
+  image: { url: string; w: number; h: number };
+  onCrop: (croppedUrl: string, w: number, h: number) => void;
+  onSkip: () => void;
+  onCancel: () => void;
+}) {
+  const [crop, setCrop] = useState({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+  const [aspectLock, setAspectLock] = useState(false);
+  const [isDragging, setIsDragging] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [imgRect, setImgRect] = useState({ left: 0, top: 0, width: 0, height: 0 });
+
+  const updateImgRect = () => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    const imgRatio = image.w / image.h;
+    const containerRatio = cw / ch;
+
+    let w, h;
+    if (imgRatio > containerRatio) {
+      w = cw;
+      h = cw / imgRatio;
+    } else {
+      h = ch;
+      w = ch * imgRatio;
+    }
+    setImgRect({
+      left: (cw - w) / 2,
+      top: (ch - h) / 2,
+      width: w,
+      height: h,
+    });
+  };
+
+  useEffect(() => {
+    updateImgRect();
+    window.addEventListener('resize', updateImgRect);
+    return () => window.removeEventListener('resize', updateImgRect);
+  }, [image]);
+
+  const handleMouseDown = (e: React.MouseEvent | React.TouchEvent, part: string) => {
+    e.preventDefault();
+    setIsDragging(part);
+  };
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      if (!isDragging || !containerRef.current) return;
+
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = (clientX - rect.left - imgRect.left) / imgRect.width;
+      const y = (clientY - rect.top - imgRect.top) / imgRect.height;
+
+      setCrop((prev) => {
+        let { x: nx, y: ny, w: nw, h: nh } = { ...prev };
+
+        if (isDragging === 'box') {
+          const dx = x - (nx + nw / 2);
+          const dy = y - (ny + nh / 2);
+          nx = Math.max(0, Math.min(1 - nw, nx + dx));
+          ny = Math.max(0, Math.min(1 - nh, ny + dy));
+        } else {
+          const minSize = 0.05;
+          if (isDragging.includes('n')) {
+            const bottom = ny + nh;
+            ny = Math.max(0, Math.min(bottom - minSize, y));
+            nh = bottom - ny;
+          }
+          if (isDragging.includes('s')) {
+            nh = Math.max(minSize, Math.min(1 - ny, y - ny));
+          }
+          if (isDragging.includes('w')) {
+            const right = nx + nw;
+            nx = Math.max(0, Math.min(right - minSize, x));
+            nw = right - nx;
+          }
+          if (isDragging.includes('e')) {
+            nw = Math.max(minSize, Math.min(1 - nx, x - nx));
+          }
+
+          if (aspectLock) {
+            const ratio = image.w / image.h;
+            if (isDragging === 'e' || isDragging === 'w') nh = nw * ratio;
+            else if (isDragging === 'n' || isDragging === 's') nw = nh / ratio;
+            else {
+              const currentRatio = nw / nh;
+              if (currentRatio > ratio) nw = nh * ratio;
+              else nh = nw / ratio;
+            }
+            
+            if (nx + nw > 1) nw = 1 - nx;
+            if (ny + nh > 1) nh = 1 - ny;
+          }
+        }
+
+        return { x: nx, y: ny, w: nw, h: nh };
+      });
+    };
+
+    const handleUp = () => setIsDragging(null);
+
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
+      window.addEventListener('touchmove', handleMove);
+      window.addEventListener('touchend', handleUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleUp);
+    };
+  }, [isDragging, imgRect, aspectLock, image]);
+
+  const handleApply = async () => {
+    const px = Math.round(crop.x * image.w);
+    const py = Math.round(crop.y * image.h);
+    const pw = Math.round(crop.w * image.w);
+    const ph = Math.round(crop.h * image.h);
+    const cropped = await cropImageDataUrl(image.url, px, py, pw, ph);
+    onCrop(cropped, pw, ph);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] flex flex-col bg-black/90 p-4 sm:p-8 animate-in fade-in duration-300">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-primary/20 rounded-lg">
+            <Crop className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-white">Crop Your Photo</h3>
+            <p className="text-xs text-gray-400">Position the box to focus on your upper body</p>
+          </div>
+        </div>
+        <button onClick={onCancel} className="p-2 text-gray-400 hover:text-white transition-colors">
+          <X className="h-6 w-6" />
+        </button>
+      </div>
+
+      <div className="flex-1 relative min-h-0 mb-6 bg-checkerboard rounded-xl overflow-hidden shadow-2xl border border-white/10" ref={containerRef}>
+        <img
+          src={image.url}
+          alt=""
+          className="absolute pointer-events-none select-none"
+          style={{
+            left: imgRect.left,
+            top: imgRect.top,
+            width: imgRect.width,
+            height: imgRect.height,
+          }}
+        />
+        <div className="absolute inset-0 bg-black/60 pointer-events-none" 
+             style={{ clipPath: `polygon(0% 0%, 0% 100%, ${imgRect.left + crop.x * imgRect.width}px 100%, ${imgRect.left + crop.x * imgRect.width}px ${imgRect.top + crop.y * imgRect.height}px, ${imgRect.left + (crop.x + crop.w) * imgRect.width}px ${imgRect.top + crop.y * imgRect.height}px, ${imgRect.left + (crop.x + crop.w) * imgRect.width}px ${imgRect.top + (crop.y + crop.h) * imgRect.height}px, ${imgRect.left + crop.x * imgRect.width}px ${imgRect.top + (crop.y + crop.h) * imgRect.height}px, ${imgRect.left + crop.x * imgRect.width}px 100%, 100% 100%, 100% 0%)` }} />
+        
+        <div
+          className="absolute cursor-move border-2 border-primary shadow-[0_0_0_9999px_rgba(0,0,0,0)]"
+          style={{
+            left: imgRect.left + crop.x * imgRect.width,
+            top: imgRect.top + crop.y * imgRect.height,
+            width: crop.w * imgRect.width,
+            height: crop.h * imgRect.height,
+          }}
+          onMouseDown={(e) => handleMouseDown(e, 'box')}
+          onTouchStart={(e) => handleMouseDown(e, 'box')}
+        >
+          {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((handle) => (
+            <div
+              key={handle}
+              className={`absolute h-4 w-4 bg-white border-2 border-primary rounded-sm shadow-sm transition-transform hover:scale-125 z-10
+                ${handle.includes('n') ? '-top-2' : handle.includes('s') ? '-bottom-2' : 'top-1/2 -translate-y-1/2'}
+                ${handle.includes('w') ? '-left-2' : handle.includes('e') ? '-right-2' : 'left-1/2 -translate-x-1/2'}
+                ${(handle === 'n' || handle === 's') ? 'cursor-ns-resize' : (handle === 'e' || handle === 'w') ? 'cursor-ew-resize' : handle === 'nw' || handle === 'se' ? 'cursor-nwse-resize' : 'cursor-nesw-resize'}
+              `}
+              onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, handle); }}
+              onTouchStart={(e) => { e.stopPropagation(); handleMouseDown(e, handle); }}
+            />
+          ))}
+          <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none opacity-30">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className={`border-primary ${i < 2 ? 'border-r' : 'border-b'}`} style={{ gridColumn: i < 2 ? i + 1 : '1/4', gridRow: i < 2 ? '1/4' : i - 1 }} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row items-center gap-4">
+        <button
+          onClick={() => setAspectLock(!aspectLock)}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${aspectLock ? 'bg-primary text-white' : 'bg-white/10 text-gray-300 hover:bg-white/20'}`}
+        >
+          {aspectLock ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+          Lock Aspect Ratio
+        </button>
+        <div className="flex-1" />
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <Button variant="ghost" className="flex-1 sm:flex-none text-gray-400 hover:text-white" onClick={onSkip}>
+            Skip
+          </Button>
+          <Button className="flex-1 sm:flex-none gap-2 px-8" onClick={handleApply}>
+            Crop & Continue
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ExpandableResultImage({
   src,
@@ -92,41 +343,12 @@ function ExpandableResultImage({
   );
 }
 
-function CountdownTimer({ nextAvailableAt, onComplete }: { nextAvailableAt: string; onComplete: () => void }) {
-  const [timeLeft, setTimeLeft] = useState<number>(0);
 
-  useEffect(() => {
-    const target = new Date(nextAvailableAt).getTime();
-    const update = () => {
-      const now = Date.now();
-      const diff = target - now;
-      if (diff <= 0) {
-        setTimeLeft(0);
-        onComplete();
-      } else {
-        setTimeLeft(diff);
-      }
-    };
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, [nextAvailableAt, onComplete]);
-
-  if (timeLeft <= 0) return null;
-
-  const h = Math.floor(timeLeft / (1000 * 60 * 60));
-  const m = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-  const s = Math.floor((timeLeft % (1000 * 60)) / 1000);
-
-  return (
-    <span className="font-mono font-bold">
-      {h.toString().padStart(2, '0')}:{m.toString().padStart(2, '0')}:{s.toString().padStart(2, '0')}
-    </span>
-  );
-}
 
 export default function PhotoTryOn({ selectedProduct }: Props) {
-  const [personImage, setPersonImage] = useState<string | null>(null);
+  const personImage = useStore((s) => s.tryOnPersonImage);
+  const setPersonImage = useStore((s) => s.setTryOnPersonImage);
+  const navigate = useNavigate();
   const [imageDims, setImageDims] = useState<{ w: number; h: number } | null>(null);
   const [needsResize, setNeedsResize] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -137,13 +359,16 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
   const [sizeWarning, setSizeWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const garmentFileInputRef = useRef<HTMLInputElement>(null);
-  const [hasCompletedTryOn, setHasCompletedTryOn] = useState(false);
+  const hasCompletedTryOn = useStore((s) => s.hasCompletedTryOn);
+  const setHasCompletedTryOn = useStore((s) => s.setHasCompletedTryOn);
   const [garmentOverrideDataUrl, setGarmentOverrideDataUrl] = useState<string | null>(null);
   const [garmentChangeMode, setGarmentChangeMode] = useState(false);
   const [cancelledNotice, setCancelledNotice] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<LightboxState>(null);
-  const user = useStore((state) => state.user);
-  const isAuthenticated = useStore((state) => state.isAuthenticated);
+
+  const [originalImageForCrop, setOriginalImageForCrop] = useState<{ url: string; w: number; h: number } | null>(null);
+  const [showCropUI, setShowCropUI] = useState(false);
+
   const {
     tryOn,
     cancel,
@@ -153,25 +378,13 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
     preprocessedGarment,
     rawResult,
     error,
-    nextAvailableAt: apiNextAvailableAt,
     processingTime,
     reset,
   } = useTryOnApi();
 
-  const [localNextAvailableAt, setLocalNextAvailableAt] = useState<string | null>(null);
-  const nextAvailableAt = apiNextAvailableAt || localNextAvailableAt;
 
-  useEffect(() => {
-    if (user?.lastAiTryOnAt) {
-      const last = new Date(user.lastAiTryOnAt).getTime();
-      const now = Date.now();
-      const diffHours = (now - last) / (1000 * 60 * 60);
-      if (diffHours < 24) {
-        const next = new Date(last + 24 * 60 * 60 * 1000).toISOString();
-        setLocalNextAvailableAt(next);
-      }
-    }
-  }, [user?.lastAiTryOnAt]);
+
+
 
   useEffect(() => {
     if (resultImage) {
@@ -179,7 +392,7 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
       setGarmentOverrideDataUrl(null);
       setGarmentChangeMode(false);
     }
-  }, [resultImage]);
+  }, [resultImage, setHasCompletedTryOn]);
 
   useEffect(() => {
     if (!cancelledNotice) return;
@@ -269,11 +482,14 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
     reader.onload = () => {
       const dataUrl = reader.result as string;
       const img = new window.Image();
-      img.onload = () => acceptImage(dataUrl, img.width, img.height);
+      img.onload = () => {
+        setOriginalImageForCrop({ url: dataUrl, w: img.width, h: img.height });
+        setShowCropUI(true);
+      };
       img.src = dataUrl;
     };
     reader.readAsDataURL(file);
-  }, [acceptImage]);
+  }, []);
 
   const handleResize = useCallback(async () => {
     if (!personImage) return;
@@ -318,18 +534,13 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
   }, [handleFile, hasCompletedTryOn]);
 
   const handleTryOn = async () => {
-    if (!isAuthenticated) {
-      toast.info('Members Only Feature', {
-        description: 'AI Try-On requires an account. Please sign in to use this feature. You can still proceed with your order as a guest.',
-        duration: 6000,
-      });
-      return;
-    }
 
-    if (!personImage || !selectedProduct?.image || !validationOk) return;
+
+    if (!personImage || !selectedProduct || !validationOk) return;
     setCancelledNotice(null);
     try {
-      const res = await fetch(selectedProduct.image);
+      const garmentUrl = selectedProduct.tryOnImage || selectedProduct.image;
+      const res = await fetch(garmentUrl);
       const blob = await res.blob();
       const garmentB64 = await new Promise<string>((resolve, reject) => {
         const r = new FileReader();
@@ -344,13 +555,14 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
   };
 
   const handleTryAgain = async () => {
-    if (!personImage || !selectedProduct?.image || !validationOk) return;
+    if (!personImage || !selectedProduct || !validationOk) return;
     setCancelledNotice(null);
     setGarmentOverrideDataUrl(null);
     setGarmentChangeMode(false);
     reset();
     try {
-      const res = await fetch(selectedProduct.image);
+      const garmentUrl = selectedProduct.tryOnImage || selectedProduct.image;
+      const res = await fetch(garmentUrl);
       const blob = await res.blob();
       const garmentB64 = await new Promise<string>((resolve, reject) => {
         const r = new FileReader();
@@ -401,10 +613,10 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
 
   const handleReset = () => {
     reset();
+    setPersonImage(null);
     setHasCompletedTryOn(false);
     setGarmentOverrideDataUrl(null);
     setGarmentChangeMode(false);
-    // Preserve personImage, imageDims, and validation state for better UX
   };
 
   const lightboxPortal =
@@ -462,6 +674,23 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
 
   return (
     <div className="flex flex-col gap-4 w-full">
+      {showCropUI && originalImageForCrop && (
+        <CropOverlay
+          image={originalImageForCrop}
+          onCrop={(cropped, w, h) => {
+            setShowCropUI(false);
+            acceptImage(cropped, w, h);
+          }}
+          onSkip={() => {
+            setShowCropUI(false);
+            acceptImage(originalImageForCrop.url, originalImageForCrop.w, originalImageForCrop.h);
+          }}
+          onCancel={() => {
+            setShowCropUI(false);
+            setOriginalImageForCrop(null);
+          }}
+        />
+      )}
       {!hasCompletedTryOn && (
         <>
           <PhotoGuidancePanel />
@@ -583,18 +812,13 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
           <Button
             type="button"
             className="w-full h-12 text-base font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-primary/20"
-            disabled={!personImage || !validationOk || isLoading || !!nextAvailableAt}
+            disabled={!personImage || !validationOk || isLoading}
             onClick={handleTryOn}
           >
             {isLoading ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 Processing...
-              </span>
-            ) : nextAvailableAt ? (
-              <span className="flex items-center gap-2">
-                <Lock className="h-4 w-4" />
-                Limit Reached
               </span>
             ) : (
               'Generate Try-On'
@@ -623,16 +847,7 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
               <p className="text-sm text-destructive text-center font-medium bg-destructive/5 px-4 py-2 rounded-lg border border-destructive/10 w-full">
                 {error}
               </p>
-              {nextAvailableAt && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full border border-border animate-in fade-in slide-in-from-top-1 duration-300">
-                  <RefreshCw className="h-3 w-3 text-primary" />
-                  <span>Available again in:</span>
-                  <CountdownTimer 
-                    nextAvailableAt={nextAvailableAt} 
-                    onComplete={() => reset()} 
-                  />
-                </div>
-              )}
+
             </div>
           )}
         </>
@@ -645,36 +860,6 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
             Tips for Best Results
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-            <div className="space-y-1">
-              <p className="text-[13px] font-medium">Wait for Ready</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Ensure your nose, shoulders, and hips are in frame. Follow the border hint until it turns green.
-              </p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[13px] font-medium">Camera Distance</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Step back until your upper body fits comfortably—about arm's length usually works best.
-              </p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[13px] font-medium">Face Forward</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Stand square to the camera. This mode maps flat images and looks most natural from the front.
-              </p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[13px] font-medium">Optimized Lighting</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Use bright, even light. Avoid strong backlighting (like windows) to keep your outline sharp.
-              </p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[13px] font-medium">Product Quality</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                High-quality flat-lay PNGs with transparent backgrounds provide the most seamless torso mapping.
-              </p>
-            </div>
             <div className="space-y-1">
               <p className="text-[13px] font-medium">Base Clothing</p>
               <p className="text-xs text-muted-foreground leading-relaxed">
@@ -919,6 +1104,15 @@ export default function PhotoTryOn({ selectedProduct }: Props) {
           <Button variant="outline" className="w-full" onClick={handleReset}>
             Try Another
           </Button>
+          {resultImage && selectedProduct && (
+            <Button
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-6 text-lg"
+              onClick={() => navigate(`/product/${selectedProduct.id}`)}
+            >
+              Go to Product Details
+              <ChevronRight className="ml-2 h-5 w-5" />
+            </Button>
+          )}
         </div>
       )}
 

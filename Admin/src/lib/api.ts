@@ -310,6 +310,7 @@ export interface ProductItem {
   tags: string[];
   stockQuantity?: number;
   lowStockThreshold?: number;
+  tryOnImageUrl: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -345,6 +346,7 @@ export const productsAPI = {
     isCustomizable?: boolean;
     rating?: number;
     reviewCount?: number;
+    tryOnImageUrl: string;
   }) =>
     request<{ success: boolean; message: string; data: ProductItem }>("products", {
       method: "POST",
@@ -365,6 +367,7 @@ export const productsAPI = {
       isCustomizable?: boolean;
       rating?: number;
       reviewCount?: number;
+      tryOnImageUrl?: string;
     }
   ) =>
     request<{ success: boolean; message: string; data: ProductItem }>(`products/${id}`, {
@@ -650,10 +653,14 @@ export interface InventoryStockMovement {
   productSlug?: string;
   previousStock: number;
   newStock: number;
+  quantityChange: number;
+  changeType: 'manual' | 'order';
+  reason: string;
+  orderId?: string;
   previousThreshold: number;
   newThreshold: number;
-  changedByEmail: string | null;
-  changedById: string | null;
+  changedByEmail?: string;
+  changedById?: string;
   createdAt: string;
 }
 

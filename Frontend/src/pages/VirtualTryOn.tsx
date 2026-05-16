@@ -21,8 +21,9 @@ import { frontendProductsListKey } from '@/lib/queryClient';
 import type { Product } from '@/lib/types';
 import { toast } from 'sonner';
 import { CURRENCY } from '@/lib/constants';
-import { useStore } from '@/components/LiveTryOn/store';
-import { ModelThumbnail } from '@/components/LiveTryOn/ModelPreview';
+import { useStore as useLiveStore } from '@/components/LiveTryOn/store';
+import { useStore as useAppStore } from '@/store/useStore';
+import ModelPreview, { ModelThumbnail } from '@/components/LiveTryOn/ModelPreview';
 
 const devShirts = [
   { id: 'dev-shirt-1', name: 'Dev Shirt 1', image: '/dev-shirts/Dev-shirt1.png', price: 0 },
@@ -54,12 +55,16 @@ export default function VirtualTryOn() {
   const [searchParams] = useSearchParams();
   const productIdFromUrl = searchParams.get('product');
   const modeFromUrl = searchParams.get('mode');
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [activeTab, setActiveTab] = useState<string>(() => {
-    if (modeFromUrl === 'camera') return 'camera';
-    if (modeFromUrl === 'image') return 'image';
-    return 'measurements';
-  });
+  const selectedProduct = useAppStore((s) => s.tryOnSelectedProduct);
+  const setSelectedProduct = useAppStore((s) => s.setTryOnSelectedProduct);
+  const activeTab = useAppStore((s) => s.tryOnActiveTab);
+  const setActiveTab = useAppStore((s) => s.setTryOnActiveTab);
+
+  useEffect(() => {
+    if (modeFromUrl === 'camera' || modeFromUrl === 'image') {
+      setActiveTab(modeFromUrl);
+    }
+  }, [modeFromUrl, setActiveTab]);
   const [measurements, setMeasurements] = useState({
     chest: '',
     waist: '',
@@ -91,9 +96,9 @@ export default function VirtualTryOn() {
     toast.success(`Based on your measurements, we recommend size ${size}`);
   };
 
-  const availableModels = useStore((state) => state.availableModels);
-  const selectedGarment = useStore((state) => state.selectedGarment);
-  const setSelectedGarment = useStore((state) => state.setSelectedGarment);
+  const availableModels = useLiveStore((state) => state.availableModels);
+  const selectedGarment = useLiveStore((state) => state.selectedGarment);
+  const setSelectedGarment = useLiveStore((state) => state.setSelectedGarment);
   
   const localTryOnProducts = useMemo(
     () => availableModels.map(m => ({
@@ -432,30 +437,6 @@ export default function VirtualTryOn() {
                     </h4>
                     <div className="grid grid-cols-1 gap-y-3">
                       <div className="space-y-0.5">
-                        <p className="text-[13px] font-medium">Wait for Ready</p>
-                        <p className="text-xs text-muted-foreground leading-snug">
-                          Ensure nose, shoulders, and hips are in frame. Follow the border hint until it turns green.
-                        </p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <p className="text-[13px] font-medium">Camera Distance</p>
-                        <p className="text-xs text-muted-foreground leading-snug">
-                          Step back until your upper body fits comfortably—arm&apos;s length usually works best.
-                        </p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <p className="text-[13px] font-medium">Face Forward</p>
-                        <p className="text-xs text-muted-foreground leading-snug">
-                          Stand square to the camera. This ensures the 3D garment maps naturally to your torso.
-                        </p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <p className="text-[13px] font-medium">Optimized Lighting</p>
-                        <p className="text-xs text-muted-foreground leading-snug">
-                          Use bright, even light. Avoid strong backlighting to keep your body outline sharp.
-                        </p>
-                      </div>
-                      <div className="space-y-0.5">
                         <p className="text-[13px] font-medium">Base Clothing</p>
                         <p className="text-xs text-muted-foreground leading-snug">
                           Fitted layers work better than loose hoodies, reducing bulk under the virtual overlay.
@@ -473,8 +454,12 @@ export default function VirtualTryOn() {
                     Choose a shirt to overlay on your camera feed
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-2 md:gap-3 max-h-[300px] md:max-h-[400px] overflow-y-auto">
+                <CardContent className="space-y-6">
+                  <div className="rounded-xl overflow-hidden border border-border shadow-inner bg-muted/20">
+                    <ModelPreview />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 md:gap-3 max-h-[250px] md:max-h-[350px] overflow-y-auto pr-1">
                     {availableModels.map((model) => (
                       <button
                         key={model.id}

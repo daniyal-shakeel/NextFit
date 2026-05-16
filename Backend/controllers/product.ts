@@ -44,6 +44,7 @@ function toProductResponse(p: {
   tags?: string[];
   stockQuantity?: number;
   lowStockThreshold?: number;
+  tryOnImageUrl: string;
   createdAt?: Date;
   updatedAt?: Date;
 }) {
@@ -63,6 +64,7 @@ function toProductResponse(p: {
     tags: p.tags ?? [],
     stockQuantity: p.stockQuantity ?? 0,
     lowStockThreshold: p.lowStockThreshold ?? 0,
+    tryOnImageUrl: p.tryOnImageUrl,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -278,6 +280,7 @@ export const addProduct = async (req: Request, res: Response): Promise<Response>
       isCustomizable,
       rating,
       reviewCount,
+      tryOnImageUrl,
     } = req.body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
@@ -325,6 +328,12 @@ export const addProduct = async (req: Request, res: Response): Promise<Response>
         message: 'Main image URL is required',
       });
     }
+    if (!tryOnImageUrl || typeof tryOnImageUrl !== 'string' || !tryOnImageUrl.trim()) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        success: false,
+        message: 'Try-on garment image URL is required',
+      });
+    }
 
     let slug = slugify(name);
     if (!slug) {
@@ -364,6 +373,7 @@ export const addProduct = async (req: Request, res: Response): Promise<Response>
       reviewCount: Math.max(0, ensureNumber(reviewCount, 0) ?? 0),
       stockQuantity: adminDefaults.defaultStockQuantity,
       lowStockThreshold: adminDefaults.defaultLowStockThreshold,
+      tryOnImageUrl: tryOnImageUrl.trim(),
     });
 
     await Category.findByIdAndUpdate(categoryId, { $inc: { productCount: 1 } });
@@ -387,6 +397,7 @@ export const addProduct = async (req: Request, res: Response): Promise<Response>
         isCustomizable: product.isCustomizable,
         stockQuantity: product.stockQuantity ?? 0,
         lowStockThreshold: product.lowStockThreshold ?? 0,
+        tryOnImageUrl: product.tryOnImageUrl,
         createdAt: product.createdAt,
         updatedAt: product.updatedAt,
       },
@@ -454,6 +465,7 @@ export const updateProduct = async (req: Request, res: Response): Promise<Respon
       reviewCount,
       stockQuantity,
       lowStockThreshold,
+      tryOnImageUrl,
     } = req.body;
 
     const oldCategoryId = product.categoryId?.toString();
@@ -549,6 +561,15 @@ export const updateProduct = async (req: Request, res: Response): Promise<Respon
       const lst = ensureNumber(lowStockThreshold, 0);
       if (lst !== null) product.lowStockThreshold = lst;
     }
+    if (tryOnImageUrl !== undefined) {
+      if (typeof tryOnImageUrl !== 'string' || !tryOnImageUrl.trim()) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: 'Try-on garment image URL must be a non-empty string',
+        });
+      }
+      product.tryOnImageUrl = tryOnImageUrl.trim();
+    }
 
     await product.save();
 
@@ -577,6 +598,7 @@ export const updateProduct = async (req: Request, res: Response): Promise<Respon
         isCustomizable: product.isCustomizable,
         stockQuantity: product.stockQuantity ?? 0,
         lowStockThreshold: product.lowStockThreshold ?? 0,
+        tryOnImageUrl: product.tryOnImageUrl,
         createdAt: product.createdAt,
         updatedAt: product.updatedAt,
       },

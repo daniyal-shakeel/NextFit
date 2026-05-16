@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useStore } from '@/store/useStore';
-import { authAPI, customersAPI } from '@/lib/api';
+import { authAPI, customersAPI, ApiError } from '@/lib/api';
 import { mapApiMeasurements } from '@/lib/mapApiMeasurements';
 
 export const AuthChecker = () => {
@@ -43,7 +43,9 @@ export const AuthChecker = () => {
           logout();
         }
       } catch (error) {
-        console.error('Auth check failed:', error);
+        if (!(error instanceof ApiError && error.status === 401)) {
+          console.error('Auth check failed:', error);
+        }
         logout();
       }
     };

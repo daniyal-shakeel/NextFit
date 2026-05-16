@@ -34,7 +34,7 @@ function parseList(s: string): string[] {
     .filter(Boolean);
 }
 
-type PasteTarget = "primary" | 0 | 1 | 2;
+type PasteTarget = "primary" | "tryOn" | 0 | 1 | 2;
 
 type ImageSlot = {
   manualUrl: string;
@@ -69,6 +69,7 @@ export default function AddProduct() {
   const [formReviewCount, setFormReviewCount] = useState("0");
 
   const [primary, setPrimary] = useState<ImageSlot>(() => emptySlot());
+  const [tryOn, setTryOn] = useState<ImageSlot>(() => emptySlot());
   const [secondary, setSecondary] = useState<ImageSlot[]>(() => [emptySlot(), emptySlot(), emptySlot()]);
   const pasteTargetRef = useRef<PasteTarget>("primary");
 
@@ -107,19 +108,21 @@ export default function AddProduct() {
 
   const processFileForSlot = async (
     file: File | null,
-    which: "primary" | number
+    which: "primary" | "tryOn" | number
   ) => {
     if (!file) return;
     const allowed = ["image/jpeg", "image/png", "image/webp"];
     if (!allowed.includes(file.type)) {
       const msg = "Invalid file type. Use JPG, PNG, or WebP.";
       if (which === "primary") setPrimarySlot((s) => ({ ...s, error: msg }));
+      else if (which === "tryOn") setTryOn((s) => ({ ...s, error: msg }));
       else setSecondarySlot(which as number, (s) => ({ ...s, error: msg }));
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
       const msg = "Image must be 2MB or smaller.";
       if (which === "primary") setPrimarySlot((s) => ({ ...s, error: msg }));
+      else if (which === "tryOn") setTryOn((s) => ({ ...s, error: msg }));
       else setSecondarySlot(which as number, (s) => ({ ...s, error: msg }));
       return;
     }
@@ -131,6 +134,8 @@ export default function AddProduct() {
 
     if (which === "primary") {
       setPrimarySlot(applySlot);
+    } else if (which === "tryOn") {
+      setTryOn(applySlot);
     } else {
       setSecondarySlot(which, applySlot);
     }
@@ -140,6 +145,11 @@ export default function AddProduct() {
       const preview = URL.createObjectURL(resized);
       if (which === "primary") {
         setPrimary((s) => {
+          if (s.preview) URL.revokeObjectURL(s.preview);
+          return { ...s, preview, uploading: true, error: null };
+        });
+      } else if (which === "tryOn") {
+        setTryOn((s) => {
           if (s.preview) URL.revokeObjectURL(s.preview);
           return { ...s, preview, uploading: true, error: null };
         });
@@ -157,6 +167,8 @@ export default function AddProduct() {
       const url = up.data.imageUrl;
       if (which === "primary") {
         setPrimary((s) => ({ ...s, cloudUrl: url, uploading: false, error: null }));
+      } else if (which === "tryOn") {
+        setTryOn((s) => ({ ...s, cloudUrl: url, uploading: false, error: null }));
       } else {
         setSecondary((prev) =>
           prev.map((s, i) => (i === which ? { ...s, cloudUrl: url, uploading: false, error: null } : s))
@@ -166,6 +178,8 @@ export default function AddProduct() {
       const msg = e instanceof Error ? e.message : "Upload failed";
       if (which === "primary") {
         setPrimary((s) => ({ ...s, uploading: false, error: msg }));
+      } else if (which === "tryOn") {
+        setTryOn((s) => ({ ...s, uploading: false, error: msg }));
       } else {
         setSecondary((prev) =>
           prev.map((s, i) => (i === which ? { ...s, uploading: false, error: msg } : s))
@@ -205,6 +219,7 @@ export default function AddProduct() {
   }, []);
 
   const primaryFinalUrl = (primary.cloudUrl || primary.manualUrl.trim()).trim();
+  const tryOnFinalUrl = (tryOn.cloudUrl || tryOn.manualUrl.trim()).trim();
 
   const handleSuggestDescription = async () => {
     const name = formName.trim() || "this product";
@@ -301,7 +316,11 @@ export default function AddProduct() {
       setError("Primary image is required (upload a file or enter an image URL).");
       return;
     }
-    if (primary.uploading || secondary.some((s) => s.uploading)) {
+    if (!tryOnFinalUrl) {
+      setError("Try-on garment image is required (upload a file or enter an image URL).");
+      return;
+    }
+    if (primary.uploading || tryOn.uploading || secondary.some((s) => s.uploading)) {
       setError("Wait for image uploads to finish.");
       return;
     }
@@ -329,6 +348,7 @@ export default function AddProduct() {
         tags: parseList(formTags),
         rating: Math.min(5, Math.max(0, Number(formRating) || 0)),
         reviewCount: Math.max(0, Number(formReviewCount) || 0),
+        tryOnImageUrl: tryOnFinalUrl,
       });
       navigate("/products", { replace: true });
     } catch (err) {
@@ -338,7 +358,7 @@ export default function AddProduct() {
     }
   };
 
-  const dropHandlers = (which: "primary" | number) => ({
+  const dropHandlers = (which: "primary" | "tryOn" | number) => ({
     onDragOver: (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -364,7 +384,7 @@ export default function AddProduct() {
     label: string;
     optionalLabel?: string;
     slot: ImageSlot;
-    which: "primary" | number;
+    which: "primary" | "tryOn" | number;
     urlHint: string;
     compact?: boolean;
   }) => (
@@ -435,6 +455,7 @@ export default function AddProduct() {
               onChange={(e) => {
                 const v = e.target.value;
                 if (which === "primary") setPrimarySlot((s) => ({ ...s, manualUrl: v }));
+                else if (which === "tryOn") setTryOn((s) => ({ ...s, manualUrl: v }));
                 else setSecondarySlot(which as number, (s) => ({ ...s, manualUrl: v }));
               }}
               placeholder="https://…"
@@ -625,6 +646,13 @@ export default function AddProduct() {
                   slot={primary}
                   which="primary"
                   urlHint="Or enter image URL (optional if you uploaded a file)"
+                />
+                
+                <ImageBlock
+                  label="Try-On Garment (Hidden) *"
+                  slot={tryOn}
+                  which="tryOn"
+                  urlHint="URL for clean garment-only image"
                 />
 
                 <div className="space-y-2 pt-1">
